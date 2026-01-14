@@ -1,1 +1,6 @@
 # To ensure app dependencies are ported from your virtual environment/host machine into your container, run 'pip freeze > requirements.txt' in the terminal to overwrite this file
+web3==6.15.1
+psycopg2-binary==2.9.9
+hexbytes==0.3.1
+psutil==5.9.8
+python-dotenv==1.0.0
