@@ -44,11 +44,13 @@ import StatCard from './components/StatCard'
 import TransactionTable from './components/TransactionTable'
 import DetailModal from './components/DetailModal'
 import Header from './components/Header'
+import ModeSelector from './components/ModeSelector'
 
 const MotionCard = motion(Card)
 const MotionPaper = motion(Paper)
 
 function App() {
+  const [processingMode, setProcessingMode] = useState(null) // 'scheduled' or 'realtime'
   const [selectedOption, setSelectedOption] = useState(null)
   const [blockCount, setBlockCount] = useState(10)
   const [transactions, setTransactions] = useState([])
@@ -61,7 +63,6 @@ function App() {
 
   // Fetch options on mount
   useEffect(() => {
-    fetchOptions()
     fetchStats()
   }, [])
 
@@ -74,13 +75,15 @@ function App() {
     return () => clearInterval(interval)
   }, [autoRefresh, selectedOption])
 
-  const fetchOptions = async () => {
+  const fetchOptionsForMode = async (mode) => {
     try {
-      const response = await axios.get('/api/options')
+      const response = await axios.get('/api/options', {
+        params: { mode }
+      })
       setOptions(response.data.options)
     } catch (err) {
       console.error('Error fetching options:', err)
-      setError('Failed to load options')
+      setError('Failed to load options for this mode')
     }
   }
 
@@ -103,6 +106,7 @@ function App() {
     setError(null)
     try {
       const response = await axios.post('/api/transactions', {
+        mode: processingMode,
         option: selectedOption.toString(),
         block_count: blockCount,
       })
@@ -113,6 +117,22 @@ function App() {
       setError('Failed to fetch transactions')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSelectMode = (mode) => {
+    setProcessingMode(mode)
+    // Fetch options for the selected mode
+    fetchOptionsForMode(mode)
+  }
+
+  const fetchOptionsForMode = async (mode) => {
+    try {
+      const response = await axios.get(`/api/options?mode=${mode}`)
+      setOptions(response.data.options)
+    } catch (err) {
+      console.error('Error fetching options:', err)
+      setError('Failed to load options for this mode')
     }
   }
 
@@ -127,6 +147,43 @@ function App() {
   const handleViewDetails = async (hash) => {
     setLoading(true)
     try {
+      {/* Mode Badge & Back Button */}
+      <Box
+        sx={{
+          px: 2,
+          py: 1.5,
+          background: 'linear-gradient(90deg, #1e293b 0%, #0f172a 100%)',
+          borderBottom: '1px solid #334155',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Chip
+            label={`Mode: ${processingMode === 'scheduled' ? '⏰ Scheduled Processing' : '⚡ Real-Time Processing'}`}
+            variant="outlined"
+            sx={{
+              borderColor: processingMode === 'scheduled' ? '#3b82f6' : '#ec4899',
+              color: processingMode === 'scheduled' ? '#3b82f6' : '#ec4899',
+              fontWeight: 600,
+            }}
+          />
+          <Typography variant="caption" color="textSecondary">
+            {processingMode === 'scheduled'
+              ? 'Batch processing with ML training and full database storage'
+              : 'Real-time fraud detection with instant results'}
+          </Typography>
+        </Box>
+        <Button
+          size="small"
+          onClick={handleBackToMode}
+          sx={{ color: '#94a3b8' }}
+        >
+          ← Change Mode
+        </Button>
+      </Box>
+
       const response = await axios.get(`/api/transaction/${hash}`)
       setSelectedTx(response.data)
     } catch (err) {
@@ -137,7 +194,20 @@ function App() {
     }
   }
 
+  const handleBackToMode = () => {
+    setProcessingMode(null)
+    setSelectedOption(null)
+    setTransactions([])
+    setStats(null)
+    setError(null)
+  }
+
   const selectedOptionData = options.find(o => o.id === selectedOption)
+
+  // Show mode selector first
+  if (!processingMode) {
+    return <ModeSelector onSelectMode={handleSelectMode} />
+  }
 
   return (
     <Box sx={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
