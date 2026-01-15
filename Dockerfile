@@ -11,16 +11,23 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 
 # Install pip requirements
-COPY requirements.txt .
+COPY config/requirements.txt .
 RUN python -m pip install -r requirements.txt
 
 WORKDIR /app
-COPY . /app
+COPY src /app/src
+COPY config /app/config
+COPY docs /app/docs
+RUN chmod +x /app/src/*.py
 
 # Creates a non-root user with an explicit UID and adds permission to access the /app folder
 # For more info, please refer to https://aka.ms/vscode-docker-python-configure-containers
 RUN adduser -u 5678 --disabled-password --gecos "" appuser && chown -R appuser /app
 USER appuser
 
-# During debugging, this entry point will be overridden. For more information, please refer to https://aka.ms/vscode-docker-python-debug
+# Set Python path to include src directory
+ENV PYTHONPATH=/app/src:/app:$PYTHONPATH
+
+# Run scheduler by default
+CMD ["python", "src/scheduler.py"]# During debugging, this entry point will be overridden. For more information, please refer to https://aka.ms/vscode-docker-python-debug
 CMD ["python", "fetch_and_store.py"]

@@ -1,4 +1,4 @@
-#!/home/sugangokul/Desktop/blockchain-ml/venv/bin/python3
+#!/home/sugangokul/Desktop/blockchain-ml/venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys
