@@ -8,9 +8,14 @@ import logging
 from datetime import datetime
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+import sys
 import pandas as pd
 import numpy as np
 from web3 import Web3
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+
 from backend.etl.extract import extract_blocks
 from backend.etl.transform import transform_data
 from backend.ml.ai_integration import AIEnrichedETL
@@ -24,6 +29,14 @@ FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend', 'dist')
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path='/')
 CORS(app)
+
+# Initialize before handling requests
+@app.before_request
+def startup():
+    global w3, etl_ai
+    if w3 is None or etl_ai is None:
+        if not initialize():
+            return jsonify({'error': 'Failed to initialize Web3 or AI models'}), 500
 
 # Configuration
 RPC_URL = os.getenv('RPC_URL', "https://eth-mainnet.g.alchemy.com/v2/G09aLwdbZ-zyer6rwNMGu")
@@ -55,6 +68,16 @@ def initialize():
 # ============================================================
 # ROUTES
 # ============================================================
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Check system health and initialization status"""
+    return jsonify({
+        'status': 'ok',
+        'w3_connected': w3 is not None and w3.is_connected(),
+        'ai_loaded': etl_ai is not None,
+        'timestamp': datetime.now().isoformat()
+    })
 
 @app.route('/')
 def index():
@@ -181,6 +204,13 @@ def get_options():
 @app.route('/api/transactions', methods=['POST'])
 def get_transactions():
     """Fetch and process transactions based on selected processing mode and option"""
+    # Ensure initialized
+    if w3 is None or etl_ai is None:
+        return jsonify({
+            'error': 'System not initialized',
+            'details': 'Web3 or AI models failed to load'
+        }), 500
+    
     data = request.json
     mode = data.get('mode', 'scheduled')  # 'scheduled' or 'realtime'
     option = data.get('option', '1')
@@ -188,7 +218,11 @@ def get_transactions():
     
     try:
         if not w3.is_connected():
-            return jsonify({'error': 'Web3 not connected'}), 500
+            logger.error("❌ Web3 not connected")
+            return jsonify({
+                'error': 'Web3 connection failed',
+                'details': 'Unable to connect to Ethereum RPC. Check RPC_URL environment variable.'
+            }), 500
         
         # Get current block
         latest_block = w3.eth.block_number
@@ -226,6 +260,7 @@ def get_transactions():
         
         else:  # realtime mode
             # REAL-TIME MODE: Stream processing with instant inference
+            logger.info("⚡ REAL-TIME MODE: Processing transaction stream")
             if option == '1':
                 # Real-time Stream
                 logger.info("⚡ REAL-TIME MODE: Stream Detection")
@@ -273,8 +308,15 @@ def get_transactions():
         })
     
     except Exception as e:
-        logger.error(f"Error processing transactions: {e}")
-        return jsonify({'error': str(e), 'details': str(e)}), 500
+        logger.error(f"❌ Error processing transactions (Mode: {mode}, Option: {option}): {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': 'Failed to process transactions',
+            'details': str(e),
+            'mode': mode,
+            'option': option
+        }), 500
 
 
 @app.route('/api/transaction/<tx_hash>', methods=['GET'])

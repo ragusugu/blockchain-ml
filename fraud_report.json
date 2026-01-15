@@ -1,0 +1,94 @@
+{
+  "timestamp": "2026-01-15T19:05:16.362506",
+  "total_transactions": 1000,
+  "suspicious_transactions": 78,
+  "fraud_rate": 0.078,
+  "risk_distribution": {
+    "LOW": 921,
+    "CRITICAL": 78,
+    "MEDIUM": 1
+  },
+  "avg_fraud_probability": 0.12084576005977543,
+  "high_risk": [
+    {
+      "block": 19003,
+      "from": "0x9e6c6308e470317bfb9edaacf4257a7b768cf09a",
+      "to": "0xb1c3f19ff07a53bd3e9d7fabe97627938ddf6344",
+      "value": 11.533713757391979,
+      "fraud_prob": 0.9642307692307692,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0x8f4008811cb846477600d764c1186548275e8d8c",
+      "to": "0x46517e7b89ea0d5e3528cfb5c529cb498d7920cc",
+      "value": 64.76473572272013,
+      "fraud_prob": 1.0,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0x298050c4d24dd7e7831c7789f61c76dcc5a584d7",
+      "to": "0x9a8bc5cbc5d0ad9be8832e21791feac64574b33b",
+      "value": 12.012483370441355,
+      "fraud_prob": 0.9992307692307691,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0xa3e20374a6d56a678bc280343adce5ef736c678d",
+      "to": "0x5010b0df5a055d7b25989b7ec538ef6e13177fa6",
+      "value": 74.12126028173627,
+      "fraud_prob": 1.0,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0x64ffa3a08c3dc32811a13299031d8817c5d97780",
+      "to": "0x1c2477fcc7fe51ac4bcff3246890edddec43fa0f",
+      "value": 42.05450023038701,
+      "fraud_prob": 1.0,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0xaec98d6f6f6d92ae659b7d46fc20d626db5abb89",
+      "to": "0x08d1118aa60906a90a9617fc92723d2ea7a9fbd3",
+      "value": 37.61169769054937,
+      "fraud_prob": 0.9975,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0xe703420c95fd5259d97a04260755ea72589b0733",
+      "to": "0xa778709b174fe311fbdf5148c3a5d3e76dd0cd99",
+      "value": 46.620484796280884,
+      "fraud_prob": 1.0,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0x0e7ca692130f87c7782ce60c0e768db58707a9af",
+      "to": "0xce488b0a22295722c5d6e674c558ce8c246b0ade",
+      "value": 62.80948199417136,
+      "fraud_prob": 1.0,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0x3f0cc4caa13371a1424138d68edcd0c9abc6aaec",
+      "to": "0x33a076a1ddca739244c3541f681bb911b6c53cf7",
+      "value": 13.16677452317879,
+      "fraud_prob": 1.0,
+      "risk": "CRITICAL"
+    },
+    {
+      "block": 19003,
+      "from": "0xf5ac9a42f6e3ea9da10e1a68dde000ac1c7c139b",
+      "to": "0x15cc5710b0efbd4b415ff1fa62e1af59049ae57e",
+      "value": 156.60985899474107,
+      "fraud_prob": 0.9518333333333334,
+      "risk": "CRITICAL"
+    }
+  ]
+}

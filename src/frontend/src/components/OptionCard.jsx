@@ -6,11 +6,16 @@ import { ChevronRight } from 'lucide-react'
 const MotionCard = motion(Card)
 
 function OptionCard({ option, isSelected, onSelect }) {
+  // Handle both old format (badges, pros, cons) and new API format (features, advantages)
+  const badges = option.badges || [option.processing_stage, option.storage_type].filter(Boolean)
+  const advantages = option.pros || option.advantages || []
+  const features = option.cons || option.features || []
+
   return (
     <MotionCard
       onClick={onSelect}
       component={motion.div}
-      whileHover={{ scale: 1.05, y: -5 }}
+      whileHover={{ scale: 1.02, y: -3 }}
       whileTap={{ scale: 0.98 }}
       sx={{
         cursor: 'pointer',
@@ -36,71 +41,65 @@ function OptionCard({ option, isSelected, onSelect }) {
         },
       }}
     >
-      <CardContent>
+      <CardContent sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
           <Box
             sx={{
-              width: 32,
-              height: 32,
+              width: 28,
+              height: 28,
               borderRadius: '50%',
               background: 'linear-gradient(135deg, #6366f1, #ec4899)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontWeight: 700,
-              fontSize: '0.875rem',
+              fontSize: '0.75rem',
             }}
           >
             {option.id}
           </Box>
-          <Typography variant="h6" sx={{ fontWeight: 600, flex: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1, fontSize: '0.9rem' }}>
             {option.name}
           </Typography>
           {isSelected && (
-            <Box sx={{ color: '#6366f1', fontSize: '1.5rem' }}>✓</Box>
+            <Box sx={{ color: '#6366f1', fontSize: '1.2rem' }}>✓</Box>
           )}
         </Box>
 
-        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1.5 }}>
+        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1, fontSize: '0.75rem' }}>
           {option.description}
         </Typography>
 
-        <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
-          {option.badges.map((badge) => (
-            <Chip
-              key={badge}
-              label={badge}
-              size="small"
-              sx={{
-                fontSize: '0.7rem',
-                background: 'rgba(99, 102, 241, 0.2)',
-                color: '#6366f1',
-              }}
-            />
-          ))}
-        </Box>
+        {badges.length > 0 && (
+          <Box sx={{ display: 'flex', gap: 0.5, mb: 1, flexWrap: 'wrap' }}>
+            {badges.slice(0, 2).map((badge, idx) => (
+              <Chip
+                key={idx}
+                label={badge}
+                size="small"
+                sx={{
+                  fontSize: '0.65rem',
+                  height: 20,
+                  background: 'rgba(99, 102, 241, 0.2)',
+                  color: '#6366f1',
+                }}
+              />
+            ))}
+          </Box>
+        )}
 
-        <Box sx={{ mb: 1 }}>
-          <Typography variant="caption" sx={{ fontWeight: 600, color: '#10b981' }}>
-            ✓ Advantages
-          </Typography>
-          {option.pros.map((pro, idx) => (
-            <Typography key={idx} variant="caption" sx={{ display: 'block', fontSize: '0.75rem' }}>
-              • {pro}
+        {advantages.length > 0 && (
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#10b981', fontSize: '0.7rem' }}>
+              ✓ Key Benefits
             </Typography>
-          ))}
-        </Box>
-
-        <Box>
-          <Typography variant="caption" sx={{ fontWeight: 600, color: '#ef4444' }}>
-            ✗ Limitations
-          </Typography>
-          {option.cons.map((con, idx) => (
-            <Typography key={idx} variant="caption" sx={{ display: 'block', fontSize: '0.75rem' }}>
-              • {con}
-            </Typography>
-          ))}
-        </Box>
+            {advantages.slice(0, 3).map((item, idx) => (
+              <Typography key={idx} variant="caption" sx={{ display: 'block', fontSize: '0.7rem', lineHeight: 1.3 }}>
+                {item}
+              </Typography>
+            ))}
+          </Box>
+        )}
 
         {isSelected && (
           <Box
@@ -109,15 +108,15 @@ function OptionCard({ option, isSelected, onSelect }) {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 0.5,
-              mt: 2,
-              pt: 1.5,
+              mt: 1.5,
+              pt: 1,
               borderTop: '1px solid #334155',
               color: '#6366f1',
               fontWeight: 600,
-              fontSize: '0.875rem',
+              fontSize: '0.75rem',
             }}
           >
-            Option Selected <ChevronRight size={16} />
+            Selected <ChevronRight size={14} />
           </Box>
         )}
       </CardContent>

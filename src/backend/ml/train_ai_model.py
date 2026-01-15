@@ -16,6 +16,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def generate_random_hex(length):
+    """Generate random hex string"""
+    return ''.join(np.random.choice(list('0123456789abcdef'), size=length))
+
+
 def generate_synthetic_transactions(n_transactions=5000, fraud_rate=0.05):
     """
     Generate synthetic blockchain transaction data for training
@@ -37,12 +42,12 @@ def generate_synthetic_transactions(n_transactions=5000, fraud_rate=0.05):
     for i in range(n_normal):
         data.append({
             'block_number': 19000 + (i // 300),
-            'block_hash': f"0x{np.random.randint(0, 16**64):064x}",
+            'block_hash': f"0x{generate_random_hex(64)}",
             'timestamp': int((datetime.now() - timedelta(days=90)).timestamp()) + i * 1200,
-            'transaction_hash': f"0x{np.random.randint(0, 16**64):064x}",
+            'transaction_hash': f"0x{generate_random_hex(64)}",
             'transaction_index': i % 300,
-            'from_address': f"0x{np.random.randint(0, 16**40):040x}",
-            'to_address': f"0x{np.random.randint(0, 16**40):040x}",
+            'from_address': f"0x{generate_random_hex(40)}",
+            'to_address': f"0x{generate_random_hex(40)}",
             'value_eth': np.random.exponential(1.0),  # Most transactions are small
             'gas': np.random.choice([21000, 65000, 100000, 200000]),
             'gas_price_gwei': np.random.normal(50, 15),
@@ -59,12 +64,12 @@ def generate_synthetic_transactions(n_transactions=5000, fraud_rate=0.05):
         # Fraud pattern: High value + High gas price + Unusual time
         data.append({
             'block_number': 19000 + ((n_normal + i) // 300),
-            'block_hash': f"0x{np.random.randint(0, 16**64):064x}",
+            'block_hash': f"0x{generate_random_hex(64)}",
             'timestamp': int((datetime.now() - timedelta(days=90)).timestamp()) + (n_normal + i) * 1200,
-            'transaction_hash': f"0x{np.random.randint(0, 16**64):064x}",
+            'transaction_hash': f"0x{generate_random_hex(64)}",
             'transaction_index': (n_normal + i) % 300,
-            'from_address': f"0x{np.random.randint(0, 16**40):040x}",
-            'to_address': f"0x{np.random.randint(0, 16**40):040x}",
+            'from_address': f"0x{generate_random_hex(40)}",
+            'to_address': f"0x{generate_random_hex(40)}",
             'value_eth': np.random.exponential(50.0),  # Much higher values
             'gas': np.random.choice([21000, 65000, 100000, 200000]),
             'gas_price_gwei': np.random.normal(150, 50),  # Much higher gas price
@@ -119,13 +124,7 @@ def main():
     anomaly_results = detector.anomaly_detection(df_test, contamination=0.10)
     logger.info(f"Anomalies detected: {anomaly_results['anomaly_flag'].sum()}")
     
-    # Step 7: Visualize results
-    logger.info("\n📈 GENERATING VISUALIZATIONS")
-    logger.info("="*60)
-    
-    detector.visualize_results(results, output_file="fraud_analysis.png")
-    
-    # Step 8: Generate report
+    # Step 7: Generate report
     logger.info("\n📋 GENERATING REPORT")
     logger.info("="*60)
     
@@ -136,7 +135,6 @@ def main():
     logger.info("\n✅ TRAINING COMPLETE!")
     logger.info("="*60)
     logger.info(f"Model saved to: fraud_model.pkl")
-    logger.info(f"Visualization saved to: fraud_analysis.png")
     logger.info(f"Report saved to: fraud_report.json")
     logger.info("="*60)
 

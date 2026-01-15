@@ -25,6 +25,10 @@ import {
   Alert,
   Fade,
   Skeleton,
+  Select,
+  MenuItem,
+  InputLabel,
+  FormControl,
 } from '@mui/material'
 import {
   Cloud,
@@ -60,20 +64,38 @@ function App() {
   const [selectedTx, setSelectedTx] = useState(null)
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [error, setError] = useState(null)
+  const [refreshInterval, setRefreshInterval] = useState(5000) // milliseconds
+  const [scheduleFrequency, setScheduleFrequency] = useState('5s') // for scheduled mode
 
-  // Fetch options on mount
+  // Fetch options on mount and check health
   useEffect(() => {
+    checkHealth()
     fetchStats()
   }, [])
 
-  // Auto-refresh logic
+  const checkHealth = async () => {
+    try {
+      const response = await axios.get('/api/health')
+      if (!response.data.w3_connected) {
+        setError('⚠️ Web3 connection failed. Check your RPC URL and network connection.')
+      }
+      if (!response.data.ai_loaded) {
+        setError('⚠️ AI models not loaded. Models may still be loading...')
+      }
+    } catch (err) {
+      console.error('Health check failed:', err)
+      setError('⚠️ Backend not responding. Make sure the server is running.')
+    }
+  }
+
+  // Auto-refresh logic with configurable interval
   useEffect(() => {
     if (!autoRefresh || !selectedOption) return
     const interval = setInterval(() => {
       fetchTransactions()
-    }, 5000)
+    }, refreshInterval)
     return () => clearInterval(interval)
-  }, [autoRefresh, selectedOption])
+  }, [autoRefresh, selectedOption, refreshInterval])
 
   const fetchOptionsForMode = async (mode) => {
     try {
@@ -110,11 +132,19 @@ function App() {
         option: selectedOption.toString(),
         block_count: blockCount,
       })
+      
+      if (response.data.error) {
+        setError(`❌ ${response.data.error}: ${response.data.details || ''}`)
+        return
+      }
+      
       setTransactions(response.data.transactions || [])
       setStats(response.data.stats)
     } catch (err) {
       console.error('Error fetching transactions:', err)
-      setError('Failed to fetch transactions')
+      const errorMsg = err.response?.data?.error || err.message || 'Unknown error'
+      const errorDetails = err.response?.data?.details || ''
+      setError(`Failed to fetch transactions: ${errorMsg}${errorDetails ? ' - ' + errorDetails : ''}`)
     } finally {
       setLoading(false)
     }
@@ -126,18 +156,13 @@ function App() {
     fetchOptionsForMode(mode)
   }
 
-  const fetchOptionsForMode = async (mode) => {
-    try {
-      const response = await axios.get(`/api/options?mode=${mode}`)
-      setOptions(response.data.options)
-    } catch (err) {
-      console.error('Error fetching options:', err)
-      setError('Failed to load options for this mode')
-    }
-  }
-
   const handleSelectOption = (optionId) => {
     setSelectedOption(optionId)
+    // Auto-enable refresh for real-time mode
+    if (processingMode === 'realtime') {
+      setAutoRefresh(true)
+      setRefreshInterval(10000) // 10 seconds for real-time
+    }
   }
 
   const handleFetch = () => {
@@ -147,43 +172,6 @@ function App() {
   const handleViewDetails = async (hash) => {
     setLoading(true)
     try {
-      {/* Mode Badge & Back Button */}
-      <Box
-        sx={{
-          px: 2,
-          py: 1.5,
-          background: 'linear-gradient(90deg, #1e293b 0%, #0f172a 100%)',
-          borderBottom: '1px solid #334155',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Chip
-            label={`Mode: ${processingMode === 'scheduled' ? '⏰ Scheduled Processing' : '⚡ Real-Time Processing'}`}
-            variant="outlined"
-            sx={{
-              borderColor: processingMode === 'scheduled' ? '#3b82f6' : '#ec4899',
-              color: processingMode === 'scheduled' ? '#3b82f6' : '#ec4899',
-              fontWeight: 600,
-            }}
-          />
-          <Typography variant="caption" color="textSecondary">
-            {processingMode === 'scheduled'
-              ? 'Batch processing with ML training and full database storage'
-              : 'Real-time fraud detection with instant results'}
-          </Typography>
-        </Box>
-        <Button
-          size="small"
-          onClick={handleBackToMode}
-          sx={{ color: '#94a3b8' }}
-        >
-          ← Change Mode
-        </Button>
-      </Box>
-
       const response = await axios.get(`/api/transaction/${hash}`)
       setSelectedTx(response.data)
     } catch (err) {
@@ -276,7 +264,7 @@ function App() {
                   disabled={!selectedOption || loading}
                   sx={{
                     background: 'linear-gradient(135deg, #6366f1 0%, #ec4899 100%)',
-                    mb: 1,
+                    mb: 2,
                     py: 1.5,
                     fontWeight: 600,
                   }}
@@ -284,17 +272,115 @@ function App() {
                   {loading ? <CircularProgress size={20} /> : '🔄 Fetch & Analyze'}
                 </Button>
 
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={autoRefresh}
-                      onChange={(e) => setAutoRefresh(e.target.checked)}
-                      disabled={!selectedOption}
+                {/* Scheduling Settings - Only for Scheduled Mode */}
+                {processingMode === 'scheduled' && (
+                  <Box sx={{ 
+                    p: 2, 
+                    background: 'rgba(99, 102, 241, 0.1)', 
+                    borderRadius: 2,
+                    border: '1px solid #334155'
+                  }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: '#94a3b8' }}>
+                      📅 Schedule Settings
+                    </Typography>
+
+                    <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                      <InputLabel id="frequency-label">Frequency</InputLabel>
+                      <Select
+                        labelId="frequency-label"
+                        value={scheduleFrequency}
+                        label="Frequency"
+                        onChange={(e) => {
+                          setScheduleFrequency(e.target.value)
+                          const intervals = {
+                            '5s': 5000,
+                            '10s': 10000,
+                            '30s': 30000,
+                            '1m': 60000,
+                            '5m': 300000,
+                            '10m': 600000,
+                          }
+                          setRefreshInterval(intervals[e.target.value] || 5000)
+                        }}
+                        disabled={!selectedOption}
+                      >
+                        <MenuItem value="5s">Every 5 seconds</MenuItem>
+                        <MenuItem value="10s">Every 10 seconds</MenuItem>
+                        <MenuItem value="30s">Every 30 seconds</MenuItem>
+                        <MenuItem value="1m">Every 1 minute</MenuItem>
+                        <MenuItem value="5m">Every 5 minutes</MenuItem>
+                        <MenuItem value="10m">Every 10 minutes</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={autoRefresh}
+                          onChange={(e) => setAutoRefresh(e.target.checked)}
+                          disabled={!selectedOption}
+                          sx={{
+                            '& .MuiSwitch-switchBase.Mui-checked': {
+                              color: '#3b82f6',
+                            },
+                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                              backgroundColor: '#3b82f6',
+                            },
+                          }}
+                        />
+                      }
+                      label={
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {autoRefresh ? '🟢 Active' : '⚪ Inactive'}
+                          </Typography>
+                          <Typography variant="caption" color="textSecondary">
+                            Scheduled: {scheduleFrequency}
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ m: 0, width: '100%' }}
                     />
-                  }
-                  label="Auto-Refresh (5s)"
-                  sx={{ mt: 1 }}
-                />
+
+                    {autoRefresh && (
+                      <Chip
+                        icon={<Clock size={14} />}
+                        label={`Next fetch in ${scheduleFrequency}`}
+                        size="small"
+                        sx={{ 
+                          mt: 1.5, 
+                          width: '100%',
+                          background: 'rgba(59, 130, 246, 0.2)',
+                          borderColor: '#3b82f6',
+                          color: '#fff',
+                          animation: 'pulse 2s infinite',
+                          '@keyframes pulse': {
+                            '0%, 100%': { opacity: 1 },
+                            '50%': { opacity: 0.7 },
+                          }
+                        }}
+                        variant="outlined"
+                      />
+                    )}
+                  </Box>
+                )}
+
+                {/* Real-Time Mode Info */}
+                {processingMode === 'realtime' && selectedOption && (
+                  <Box sx={{ 
+                    p: 2, 
+                    background: 'rgba(236, 72, 153, 0.1)', 
+                    borderRadius: 2,
+                    border: '1px solid #ec4899'
+                  }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: '#ec4899' }}>
+                      ⚡ Real-Time Mode
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.875rem' }}>
+                      Live processing active. Data updates automatically every 10 seconds.
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             </MotionPaper>
           </Grid>
@@ -341,6 +427,83 @@ function App() {
                 </MotionPaper>
               )}
             </AnimatePresence>
+
+            {/* Analysis Summary - Processing Data */}
+            {transactions.length > 0 && (
+              <MotionPaper
+                component={motion.div}
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                sx={{
+                  p: 2,
+                  background: 'linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(236,72,153,0.1) 100%)',
+                  border: '1px solid #334155',
+                  borderRadius: 2,
+                  mb: 3,
+                }}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5, color: '#94a3b8' }}>
+                  📈 Analysis Summary
+                </Typography>
+
+                <Grid container spacing={1} sx={{ fontSize: '0.85rem' }}>
+                  <Grid item xs={6}>
+                    <Box sx={{ p: 1, background: 'rgba(99,102,241,0.1)', borderRadius: 1 }}>
+                      <Typography variant="caption" color="textSecondary">
+                        Blocks Analyzed
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#6366f1' }}>
+                        {blockCount}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ p: 1, background: 'rgba(236,72,153,0.1)', borderRadius: 1 }}>
+                      <Typography variant="caption" color="textSecondary">
+                        Transactions Found
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#ec4899' }}>
+                        {transactions.length}
+                      </Typography>
+                    </Box>
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Box sx={{ p: 1, background: 'rgba(16,185,129,0.1)', borderRadius: 1, mt: 0.5 }}>
+                      <Typography variant="caption" color="textSecondary">
+                        Processing Stage
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#10b981' }}>
+                        {selectedOptionData?.processing_stage || 'N/A'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Box sx={{ p: 1, background: 'rgba(245,158,11,0.1)', borderRadius: 1, mt: 0.5 }}>
+                      <Typography variant="caption" color="textSecondary">
+                        Storage Type
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#f59e0b' }}>
+                        {selectedOptionData?.storage_type || 'N/A'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Box sx={{ p: 1, background: 'rgba(139,92,246,0.1)', borderRadius: 1, mt: 0.5 }}>
+                      <Typography variant="caption" color="textSecondary">
+                        ML Model
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#8b5cf6' }}>
+                        {processingMode === 'scheduled' ? 'Random Forest + Anomaly' : 'Random Forest (Pre-trained)'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </MotionPaper>
+            )}
 
             {/* Statistics */}
             <Grid container spacing={2} sx={{ mb: 3 }}>
