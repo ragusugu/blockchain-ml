@@ -14,6 +14,8 @@ import sys
 import pandas as pd
 import numpy as np
 from web3 import Web3
+from threading import Thread
+import uuid
 
 # Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -22,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from etl.extract import extract_blocks
 from etl.transform import transform_data
 from ml.ai_integration import AIEnrichedETL
+from utils.disk_cleanup import DiskCleanupManager, monitor_disk_health
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,6 +40,12 @@ performance_metrics = {
     'last_request_time': 0.0,
 }
 
+# Simple in-memory job store
+jobs = {}
+
+# Initialize cleanup manager
+cleanup_manager = DiskCleanupManager(threshold_percent=20)
+
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path='/')
 CORS(app)
 
@@ -44,10 +53,23 @@ CORS(app)
 RPC_URL = os.getenv('RPC_URL', "https://eth-mainnet.g.alchemy.com/v2/G09aLwdbZ-zyer6rwNMGu")
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost:5432/blockchain_db')
 MODEL_ENABLED = os.getenv('MODEL_ENABLED', 'true').lower() == 'true'
+MAX_BLOCKS_PER_REQUEST = int(os.getenv('MAX_BLOCKS_PER_REQUEST', '1'))
 
 # Global state
 w3 = None
 etl_ai = None
+current_data = None
+_initialized = False
+db_connection = None
+
+# Try to import psycopg2 for PostgreSQL access
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    HAS_POSTGRES = True
+except ImportError:
+    HAS_POSTGRES = False
+    logger.warning("⚠️ psycopg2 not installed. PostgreSQL caching disabled.")
 current_data = None
 _initialized = False
 
@@ -86,6 +108,14 @@ def initialize():
 
         _initialized = True
         logger.info("✅ Dashboard initialized")
+        
+        # Start automatic disk monitoring
+        try:
+            monitor_disk_health(interval_minutes=60)
+            logger.info("✅ Automatic disk monitoring started")
+        except Exception as e:
+            logger.warning(f"Could not start disk monitoring: {e}")
+        
         return True
     except Exception as e:
         logger.error(f"Initialization failed: {e}")
@@ -96,6 +126,216 @@ def ensure_initialized():
     global w3, etl_ai, _initialized
     if not _initialized:
         initialize()
+
+
+def _process_transactions_core(mode, option, block_count):
+    """Core processing logic extracted for async job support. Returns dict."""
+    request_start = time.time()
+    if not w3.is_connected():
+        return {'error': 'Web3 connection failed', 'details': 'RPC not connected'}
+
+    latest_block = w3.eth.block_number
+    start_block = max(1, latest_block - block_count + 1)
+    end_block = latest_block
+
+    cached_data = None
+    data_source = 'Blockchain RPC'
+    extract_time = 0.0
+
+    if mode == 'scheduled':
+        try:
+            cached_data = get_cached_transactions(start_block, end_block, limit=100)
+        except Exception:
+            cached_data = None
+
+    if cached_data is not None and not cached_data.empty:
+        raw_data = cached_data.to_dict('records')
+        data_source = 'PostgreSQL Cache'
+    else:
+        extract_start = time.time()
+        raw_data = extract_blocks(start_block, end_block, w3, parallel=True, max_workers=5)
+        extract_time = time.time() - extract_start
+        data_source = 'Blockchain RPC'
+
+    if not raw_data:
+        return {
+            'mode': mode,
+            'option': option,
+            'status': 'No transactions found',
+            'block_range': f"{start_block}-{end_block}",
+            'transactions': [],
+            'stats': {},
+            'data_source': data_source,
+            'performance': {'extract_time': f"{extract_time:.3f}s", 'transform_time': "0.000s", 'total_time': "0.000s", 'tx_per_second': "0"}
+        }
+
+    transform_start = time.time()
+    clean_data = transform_data(raw_data)
+    transform_time = time.time() - transform_start
+    if clean_data is None or clean_data.empty:
+        return {
+            'mode': mode,
+            'option': option,
+            'status': 'No transactions found',
+            'block_range': f"{start_block}-{end_block}",
+            'transactions': [],
+            'stats': {},
+            'data_source': data_source,
+            'performance': {'extract_time': f"{extract_time:.3f}s", 'transform_time': f"{transform_time:.3f}s", 'total_time': f"{(time.time()-request_start):.3f}s", 'tx_per_second': "0"}
+        }
+
+    if MODEL_ENABLED:
+        enriched = etl_ai.enrich_with_fraud_scores(raw_data)
+        results = enriched
+        processing_info = 'ML scoring active' if mode == 'scheduled' else 'Real-Time ML scoring'
+    else:
+        results = pd.DataFrame(raw_data)
+        results['fraud_probability'] = 0.0
+        results['is_fraud'] = 0
+        results['fraud_risk'] = 'MODEL-OFF'
+        processing_info = 'AI disabled (pass-through only)'
+
+    if isinstance(results, dict):
+        results = results.get('main_data', clean_data)
+    if results is None:
+        results = clean_data
+
+    transactions_raw = results.to_dict('records') if not results.empty else []
+
+    def normalize_tx(tx):
+        return {
+            'hash': tx.get('tx_hash') or tx.get('transaction_hash') or tx.get('hash'),
+            'block_number': tx.get('block_number'),
+            'from_address': tx.get('from_address') or tx.get('from_addr') or tx.get('from'),
+            'to_address': tx.get('to_address') or tx.get('to_addr') or tx.get('to'),
+            'value': float(tx.get('value_eth') or tx.get('value') or 0),
+            'gas_used': tx.get('gas_used') or tx.get('gas'),
+            'status': 'success' if tx.get('status') in [1, 'success', 'SUCCESS', True] else 'failed',
+            'fraud_risk': tx.get('fraud_risk') or tx.get('risk_level') or ('MODEL-OFF' if not MODEL_ENABLED else 'LOW'),
+            'fraud_probability': float(tx.get('fraud_probability', 0)) if MODEL_ENABLED else 0.0,
+        }
+
+    transactions = [normalize_tx(tx) for tx in transactions_raw]
+
+    fraud_count = int(results['is_fraud'].sum()) if 'is_fraud' in results.columns else 0
+    total_txs = len(results)
+    avg_value_col = 'value_eth' if 'value_eth' in results.columns else 'value'
+    average_value = float(results[avg_value_col].mean()) if avg_value_col in results.columns else 0
+    total_value = float(results[avg_value_col].sum()) if avg_value_col in results.columns else 0
+
+    total_time = time.time() - request_start
+
+    return {
+        'mode': mode,
+        'option': option,
+        'status': 'success',
+        'block_range': f"{start_block}-{end_block}",
+        'transactions': transactions[:100],
+        'stats': {
+            'total_transactions': total_txs,
+            'fraud_count': fraud_count,
+            'normal_count': total_txs - fraud_count,
+            'fraud_percentage': f"{(fraud_count/total_txs*100):.1f}%" if total_txs > 0 else "0%",
+            'average_value': average_value,
+            'total_eth_value': total_value,
+            'success_rate': f"{((total_txs - fraud_count)/total_txs*100):.1f}%" if total_txs > 0 else "0%",
+            'processing_mode': mode,
+            'processing_type': processing_info
+        },
+        'processing_info': processing_info,
+        'data_source': data_source,
+        'timestamp': datetime.now().isoformat(),
+        'performance': {
+            'extract_time': f"{extract_time:.3f}s",
+            'transform_time': f"{transform_time:.3f}s",
+            'total_time': f"{total_time:.3f}s",
+            'tx_per_second': f"{total_txs/total_time:.0f}" if total_time > 0 else "0"
+        }
+    }
+
+
+@app.route('/api/transactions/async', methods=['POST'])
+def start_transactions_job():
+    """Start async job to process transactions and return job id immediately."""
+    ensure_initialized()
+    data = request.json or {}
+    mode = data.get('mode', 'scheduled')
+    option = data.get('option', '1')
+    requested_blocks = int(data.get('block_count', 5))
+    block_count = max(1, min(requested_blocks, MAX_BLOCKS_PER_REQUEST))
+
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {'status': 'processing', 'started_at': datetime.now().isoformat()}
+
+    def run_job():
+        try:
+            result = _process_transactions_core(mode, option, block_count)
+            jobs[job_id] = {'status': 'complete', 'result': result, 'completed_at': datetime.now().isoformat()}
+        except Exception as e:
+            jobs[job_id] = {'status': 'error', 'error': str(e), 'completed_at': datetime.now().isoformat()}
+
+    Thread(target=run_job, daemon=True).start()
+    return jsonify({'status': 'processing', 'job_id': job_id})
+
+
+@app.route('/api/transactions/job/<job_id>', methods=['GET'])
+def get_transactions_job(job_id):
+    """Get async job status and result when ready."""
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    return jsonify(job)
+
+
+def get_postgres_connection():
+    """Get or create PostgreSQL connection"""
+    global db_connection
+    if not HAS_POSTGRES:
+        return None
+    
+    try:
+        if db_connection is None or db_connection.closed:
+            db_connection = psycopg2.connect(DATABASE_URL)
+        return db_connection
+    except Exception as e:
+        logger.error(f"Failed to connect to PostgreSQL: {e}")
+        return None
+
+
+def get_cached_transactions(start_block, end_block, limit=100):
+    """Get transactions from PostgreSQL cache if available"""
+    conn = get_postgres_connection()
+    if not conn:
+        return None
+    
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT 
+                tx_hash as hash,
+                block_number,
+                from_addr as from_address,
+                to_addr as to_address,
+                value as value_eth,
+                gas_used,
+                status,
+                block_timestamp as timestamp
+            FROM transactions
+            WHERE block_number BETWEEN %s AND %s
+            ORDER BY block_number DESC, tx_index DESC
+            LIMIT %s
+        """, (start_block, end_block, limit))
+        
+        results = cursor.fetchall()
+        cursor.close()
+        
+        if results:
+            logger.info(f"✅ Found {len(results)} cached transactions in PostgreSQL")
+            return pd.DataFrame(results)
+        return None
+    except Exception as e:
+        logger.error(f"Error reading from PostgreSQL: {e}")
+        return None
 
 
 # ============================================================
@@ -348,6 +588,10 @@ def get_transactions():
 
     # Ensure initialized
     ensure_initialized()
+    
+    # Check disk space and cleanup if needed
+    if cleanup_manager.monitor_and_cleanup():
+        logger.warning("⚠️ Disk cleanup triggered due to low space")
 
     if w3 is None:
         return jsonify({
@@ -364,7 +608,9 @@ def get_transactions():
     data = request.json
     mode = data.get('mode', 'scheduled')  # 'scheduled' or 'realtime'
     option = data.get('option', '1')
-    block_count = data.get('block_count', 5)
+    # Clamp blocks per request to avoid long-running calls (Cloudflare 524)
+    requested_blocks = int(data.get('block_count', 5))
+    block_count = max(1, min(requested_blocks, MAX_BLOCKS_PER_REQUEST))
 
     try:
         if not w3.is_connected():
@@ -379,10 +625,25 @@ def get_transactions():
         start_block = max(1, latest_block - block_count + 1)
         end_block = latest_block
 
-        # Extract data with timing
-        extract_start = time.time()
-        raw_data = extract_blocks(start_block, end_block, w3, parallel=True, max_workers=5)
-        extract_time = time.time() - extract_start
+        # For scheduled mode, try to get from PostgreSQL cache first
+        cached_data = None
+        if mode == 'scheduled':
+            logger.info(f"📦 Checking PostgreSQL cache for blocks {start_block}-{end_block}")
+            cached_data = get_cached_transactions(start_block, end_block, limit=100)
+        
+        # If we have cached data, use it
+        if cached_data is not None and not cached_data.empty:
+            logger.info(f"✅ Using {len(cached_data)} cached transactions from PostgreSQL")
+            raw_data = cached_data.to_dict('records')
+            extract_time = 0.0
+            data_source = "PostgreSQL Cache"
+        else:
+            # Extract data from blockchain with timing
+            logger.info(f"🔗 Fetching fresh data from blockchain for blocks {start_block}-{end_block}")
+            extract_start = time.time()
+            raw_data = extract_blocks(start_block, end_block, w3, parallel=True, max_workers=5)
+            extract_time = time.time() - extract_start
+            data_source = "Blockchain RPC"
 
         # Short-circuit if no data
         if not raw_data:
@@ -494,6 +755,7 @@ def get_transactions():
             'transactions': transactions[:100],  # Limit to 100 for UI
             'stats': stats,
             'processing_info': processing_info,
+            'data_source': data_source,  # Show where data came from
             'timestamp': datetime.now().isoformat(),
             'performance': {
                 'extract_time': f"{extract_time:.3f}s",

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   TableContainer,
   Table,
@@ -11,10 +11,22 @@ import {
   Box,
   Typography,
   Skeleton,
+  TablePagination,
 } from '@mui/material'
 import { Eye } from 'lucide-react'
 
 function TransactionTable({ transactions, loading, onViewDetails }) {
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(10)
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage)
+  }
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10))
+    setPage(0)
+  }
   const getFraudRiskColor = (risk) => {
     switch (risk.toUpperCase()) {
       case 'LOW':
@@ -56,7 +68,27 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
   }
 
   return (
-    <TableContainer>
+    <Box>
+      <TableContainer
+        sx={{
+          maxHeight: 600,
+          overflow: 'auto',
+          '&::-webkit-scrollbar': {
+            width: '8px',
+          },
+          '&::-webkit-scrollbar-track': {
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '4px',
+          },
+          '&::-webkit-scrollbar-thumb': {
+            background: 'rgba(255,255,255,0.2)',
+            borderRadius: '4px',
+            '&:hover': {
+              background: 'rgba(255,255,255,0.3)',
+            },
+          },
+        }}
+      >
       <Table sx={{ minWidth: 650 }}>
         <TableHead>
           <TableRow
@@ -89,7 +121,9 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
                   ))}
                 </TableRow>
               ))
-            : transactions.map((tx, idx) => (
+            : transactions
+                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                .map((tx, idx) => (
                 <TableRow
                   key={idx}
                   hover
@@ -172,6 +206,26 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
         </TableBody>
       </Table>
     </TableContainer>
+    <TablePagination
+      rowsPerPageOptions={[5, 10, 25, 50]}
+      component="div"
+      count={transactions.length}
+      rowsPerPage={rowsPerPage}
+      page={page}
+      onPageChange={handleChangePage}
+      onRowsPerPageChange={handleChangeRowsPerPage}
+      sx={{
+        borderTop: '1px solid #334155',
+        color: 'rgba(255,255,255,0.7)',
+        '& .MuiTablePagination-actions': {
+          color: '#6366f1',
+        },
+        '& .MuiTablePagination-selectIcon': {
+          color: '#6366f1',
+        },
+      }}
+    />
+    </Box>
   )
 }
 

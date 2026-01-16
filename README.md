@@ -88,6 +88,25 @@ See `docs/OPEN_SOURCE_RPC_GUIDE.md` for RPC options.
 ✅ PostgreSQL database
 ✅ React dashboard
 ✅ REST API backend
+✅ **Automatic disk space management** - Cleans up when space runs low
+
+---
+
+## 🧹 Disk Management
+
+Automatic cleanup keeps your system healthy:
+
+```bash
+# Check disk status
+./cleanup.sh --status
+
+# Force cleanup now
+./cleanup.sh --cleanup-now
+```
+
+**Automatic monitoring** runs in background - no manual intervention needed!
+
+📖 See [CLEANUP_QUICK_REFERENCE.md](CLEANUP_QUICK_REFERENCE.md) for details.
 
 ---
 

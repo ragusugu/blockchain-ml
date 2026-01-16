@@ -43,10 +43,12 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import axios from 'axios'
+axios.defaults.timeout = 60000
 import OptionCard from './components/OptionCard'
 import StatCard from './components/StatCard'
 import TransactionTable from './components/TransactionTable'
 import DetailModal from './components/DetailModal'
+import TransactionDetailsPanel from './components/TransactionDetailsPanel'
 import Header from './components/Header'
 import ModeSelector from './components/ModeSelector'
 
@@ -54,25 +56,74 @@ const MotionCard = motion(Card)
 const MotionPaper = motion(Paper)
 
 function App() {
-  const [processingMode, setProcessingMode] = useState(null) // 'scheduled' or 'realtime'
-  const [selectedOption, setSelectedOption] = useState(null)
-  const [blockCount, setBlockCount] = useState(10)
+  // Initialize state from sessionStorage
+  const [processingMode, setProcessingMode] = useState(() => {
+    return sessionStorage.getItem('processingMode') || null
+  })
+  const [selectedOption, setSelectedOption] = useState(() => {
+    const saved = sessionStorage.getItem('selectedOption')
+    return saved ? parseInt(saved) : null
+  })
+  const [blockCount, setBlockCount] = useState(() => {
+    const saved = sessionStorage.getItem('blockCount')
+    return saved ? parseInt(saved) : 1
+  })
   const [transactions, setTransactions] = useState([])
   const [stats, setStats] = useState(null)
   const [options, setOptions] = useState([])
   const [loading, setLoading] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
-  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useState(() => {
+    const saved = sessionStorage.getItem('autoRefresh')
+    return saved === 'true'
+  })
   const [error, setError] = useState(null)
-  const [refreshInterval, setRefreshInterval] = useState(5000) // milliseconds
-  const [scheduleFrequency, setScheduleFrequency] = useState('5s') // for scheduled mode
+  const [refreshInterval, setRefreshInterval] = useState(() => {
+    const saved = sessionStorage.getItem('refreshInterval')
+    return saved ? parseInt(saved) : 300000  // Default 5 minutes
+  })
+  const [scheduleFrequency, setScheduleFrequency] = useState(() => {
+    return sessionStorage.getItem('scheduleFrequency') || '5m'
+  })
   const [modelEnabled, setModelEnabled] = useState(true)
   const [aiLoaded, setAiLoaded] = useState(true)
+  const [nextRefreshTime, setNextRefreshTime] = useState(null)
 
-  // Fetch options on mount and check health
+  // Save to sessionStorage whenever state changes
+  useEffect(() => {
+    if (processingMode) sessionStorage.setItem('processingMode', processingMode)
+  }, [processingMode])
+
+  useEffect(() => {
+    if (selectedOption !== null) sessionStorage.setItem('selectedOption', selectedOption.toString())
+  }, [selectedOption])
+
+  useEffect(() => {
+    sessionStorage.setItem('blockCount', blockCount.toString())
+  }, [blockCount])
+
+  useEffect(() => {
+    sessionStorage.setItem('autoRefresh', autoRefresh.toString())
+  }, [autoRefresh])
+
+  useEffect(() => {
+    sessionStorage.setItem('refreshInterval', refreshInterval.toString())
+  }, [refreshInterval])
+
+  useEffect(() => {
+    sessionStorage.setItem('scheduleFrequency', scheduleFrequency)
+  }, [scheduleFrequency])
+
+  // Restore session on mount and check health
   useEffect(() => {
     checkHealth()
     fetchStats()
+    
+    // Restore previous session if exists
+    const savedMode = sessionStorage.getItem('processingMode')
+    if (savedMode) {
+      fetchOptionsForMode(savedMode)
+    }
   }, [])
 
   const checkHealth = async () => {
@@ -104,12 +155,42 @@ function App() {
 
   // Auto-refresh logic with configurable interval
   useEffect(() => {
-    if (!autoRefresh || !selectedOption) return
+    // Don't start auto-refresh if no transactions have been loaded yet
+    if (!autoRefresh || !selectedOption || transactions.length === 0) {
+      setNextRefreshTime(null)
+      return
+    }
+    
+    console.log(`✅ Auto-refresh enabled: interval=${refreshInterval}ms (${scheduleFrequency})`)
+    
+    // Set initial next refresh time
+    setNextRefreshTime(Date.now() + refreshInterval)
+    
     const interval = setInterval(() => {
+      console.log(`🔄 Auto-refresh triggered (interval: ${refreshInterval}ms = ${scheduleFrequency})`)
       fetchTransactions()
+      setNextRefreshTime(Date.now() + refreshInterval)
     }, refreshInterval)
-    return () => clearInterval(interval)
-  }, [autoRefresh, selectedOption, refreshInterval])
+    
+    return () => {
+      console.log(`⏹️ Auto-refresh stopped`)
+      clearInterval(interval)
+    }
+  }, [autoRefresh, selectedOption, refreshInterval, scheduleFrequency, transactions.length])
+
+  // Countdown timer for next refresh
+  useEffect(() => {
+    if (!nextRefreshTime || !autoRefresh) return
+    
+    const countdown = setInterval(() => {
+      const remaining = Math.max(0, nextRefreshTime - Date.now())
+      if (remaining <= 0) {
+        clearInterval(countdown)
+      }
+    }, 1000)
+    
+    return () => clearInterval(countdown)
+  }, [nextRefreshTime, autoRefresh])
 
   const fetchOptionsForMode = async (mode) => {
     try {
@@ -153,19 +234,56 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const response = await axios.post('/api/transactions', {
+      // Start async job to avoid Cloudflare 524
+      const start = await axios.post('/api/transactions/async', {
         mode: processingMode,
         option: selectedOption.toString(),
         block_count: blockCount,
       })
-      
-      if (response.data.error) {
-        setError(`❌ ${response.data.error}: ${response.data.details || ''}`)
+
+      const jobId = start.data?.job_id
+      if (!jobId) {
+        throw new Error('Failed to start processing job')
+      }
+
+      // Poll for completion (up to ~90s)
+      const deadline = Date.now() + 90000
+      let result = null
+      while (Date.now() < deadline) {
+        const statusResp = await axios.get(`/api/transactions/job/${jobId}`)
+        if (statusResp.data.status === 'complete') {
+          result = statusResp.data.result
+          break
+        }
+        if (statusResp.data.status === 'error') {
+          throw new Error(statusResp.data.error || 'Processing failed')
+        }
+        await new Promise(r => setTimeout(r, 3000))
+      }
+
+      if (!result) {
+        throw new Error('Processing timed out. Please try again.')
+      }
+
+      if (result.error) {
+        setError(`❌ ${result.error}: ${result.details || ''}`)
         return
       }
-      
-      setTransactions(response.data.transactions || [])
-      setStats(response.data.stats)
+
+      const newTxs = result.transactions || []
+      if (newTxs.length > 0) {
+        setTransactions((prevTxs) => {
+          const existingHashes = new Set(prevTxs.map(tx => tx.tx_hash || tx.transaction_hash))
+          const uniqueNewTxs = newTxs.filter(tx => !existingHashes.has(tx.tx_hash || tx.transaction_hash))
+          if (uniqueNewTxs.length > 0) {
+            console.log(`✨ Found ${uniqueNewTxs.length} new transaction(s), prepending to list`)
+            return [...uniqueNewTxs, ...prevTxs]
+          }
+          return prevTxs
+        })
+      }
+
+      setStats(result.stats)
     } catch (err) {
       console.error('Error fetching transactions:', err)
       const errorMsg = err.response?.data?.error || err.message || 'Unknown error'
@@ -230,6 +348,10 @@ function App() {
     setTransactions([])
     setStats(null)
     setError(null)
+    // Clear session storage
+    sessionStorage.removeItem('processingMode')
+    sessionStorage.removeItem('selectedOption')
+    sessionStorage.removeItem('autoRefresh')
   }
 
   const selectedOptionData = options.find(o => o.id === selectedOption)
@@ -344,23 +466,21 @@ function App() {
                         onChange={(e) => {
                           setScheduleFrequency(e.target.value)
                           const intervals = {
-                            '5s': 5000,
-                            '10s': 10000,
-                            '30s': 30000,
-                            '1m': 60000,
-                            '5m': 300000,
-                            '10m': 600000,
+                            '5m': 300000,   // 5 minutes
+                            '10m': 600000,  // 10 minutes
+                            '30m': 1800000, // 30 minutes
+                            '60m': 3600000, // 60 minutes
+                            '1h': 3600000,  // 1 hour
                           }
-                          setRefreshInterval(intervals[e.target.value] || 5000)
+                          setRefreshInterval(intervals[e.target.value] || 300000)
                         }}
                         disabled={!selectedOption}
                       >
-                        <MenuItem value="5s">Every 5 seconds</MenuItem>
-                        <MenuItem value="10s">Every 10 seconds</MenuItem>
-                        <MenuItem value="30s">Every 30 seconds</MenuItem>
-                        <MenuItem value="1m">Every 1 minute</MenuItem>
                         <MenuItem value="5m">Every 5 minutes</MenuItem>
                         <MenuItem value="10m">Every 10 minutes</MenuItem>
+                        <MenuItem value="30m">Every 30 minutes</MenuItem>
+                        <MenuItem value="60m">Every 60 minutes</MenuItem>
+                        <MenuItem value="1h">Every 1 hour</MenuItem>
                       </Select>
                     </FormControl>
 
@@ -396,7 +516,7 @@ function App() {
                     {autoRefresh && (
                       <Chip
                         icon={<Clock size={14} />}
-                        label={`Next fetch in ${scheduleFrequency}`}
+                        label={`Refreshing every ${scheduleFrequency}`}
                         size="small"
                         sx={{ 
                           mt: 1.5, 
@@ -719,8 +839,8 @@ function App() {
         </Grid>
       </Container>
 
-      {/* Detail Modal */}
-      <DetailModal
+      {/* Transaction Details Panel (Right Side) */}
+      <TransactionDetailsPanel
         transaction={selectedTx}
         open={!!selectedTx}
         onClose={() => setSelectedTx(null)}

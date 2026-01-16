@@ -121,7 +121,9 @@ class RealtimeBlockchainProcessor:
                             # Update stats
                             self.stats['blocks_processed'] += (end_block - start_block + 1)
                             self.stats['transactions_processed'] += len(processed_data)
-                            self.stats['total_eth_value'] += processed_data['value_eth'].sum()
+                            # Handle both 'value_eth' and 'value' column names
+                            value_col = 'value' if 'value' in processed_data.columns else 'value_eth'
+                            self.stats['total_eth_value'] += processed_data[value_col].sum()
                             
                             batch_time = time.time() - batch_start
                             self.stats['total_time'] += batch_time
@@ -163,14 +165,22 @@ class RealtimeBlockchainProcessor:
         """Print to console (streaming view)"""
         print("\n" + "="*100)
         for idx, row in df.iterrows():
+            # Handle both column naming conventions
+            block_num = row.get('block_number', row.get('block_number'))
+            from_addr = row.get('from_addr', row.get('from_address', ''))
+            to_addr = row.get('to_addr', row.get('to_address', ''))
+            value = row.get('value', row.get('value_eth', 0))
+            gas = row.get('gas_used', 0)
+            status = row.get('status', 0)
+            
             print(f"""
 Transaction #{idx + 1}:
-  Block: {row['block_number']}
-  From: {row['from_address'][:10]}...
-  To:   {row['to_address'][:10] if pd.notna(row['to_address']) else 'Contract Creation'}...
-  Value: {row['value_eth']} ETH
-  Gas Used: {row['gas_used']}
-  Status: {'✅ Success' if row['status'] == 1 else '❌ Failed'}
+  Block: {block_num}
+  From: {from_addr[:10]}...
+  To:   {to_addr[:10] if to_addr else 'Contract Creation'}...
+  Value: {value} ETH
+  Gas Used: {gas}
+  Status: {'✅ Success' if status == 1 else '❌ Failed'}
             """)
         print("="*100)
     
@@ -213,11 +223,14 @@ Transaction #{idx + 1}:
         try:
             import requests
             
+            # Handle both column naming conventions
+            value_col = 'value' if 'value' in df.columns else 'value_eth'
+            
             # Aggregate data
             summary = {
                 'timestamp': datetime.now().isoformat(),
                 'transactions': len(df),
-                'total_eth': float(df['value_eth'].sum()),
+                'total_eth': float(df[value_col].sum()),
                 'data': json.loads(df.to_json(orient='records'))
             }
             
