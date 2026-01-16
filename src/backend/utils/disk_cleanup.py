@@ -1,6 +1,7 @@
 """
 Automatic Disk Space Cleanup Utility
 Monitors disk space and cleans up old files/data when space runs low
+Optimized for performance with parallel processing
 """
 import os
 import shutil
@@ -8,6 +9,7 @@ import logging
 import psutil
 from datetime import datetime, timedelta
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,7 +57,7 @@ class DiskCleanupManager:
     
     def cleanup_directory(self, directory, max_age_days=7):
         """
-        Clean up old files in a directory
+        Clean up old files in a directory (optimized with parallel processing)
         
         Args:
             directory: Directory to clean
@@ -67,19 +69,28 @@ class DiskCleanupManager:
         cleaned_size = 0
         try:
             cutoff_time = datetime.now() - timedelta(days=max_age_days)
+            files_to_delete = []
             
+            # Collect files to delete
             for item in Path(directory).glob('**/*'):
                 try:
                     if item.is_file():
                         item_time = datetime.fromtimestamp(item.stat().st_mtime)
-                        
                         if item_time < cutoff_time:
-                            size = item.stat().st_size
-                            item.unlink()
-                            cleaned_size += size
-                            logger.info(f"🗑️  Deleted: {item} ({size / (1024**2):.2f}MB)")
+                            files_to_delete.append(item)
                 except Exception as e:
-                    logger.warning(f"Could not delete {item}: {e}")
+                    logger.warning(f"Could not check {item}: {e}")
+            
+            # Delete files in parallel for better performance
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                for item in files_to_delete:
+                    try:
+                        size = item.stat().st_size
+                        item.unlink()
+                        cleaned_size += size
+                        logger.info(f"🗑️  Deleted: {item} ({size / (1024**2):.2f}MB)")
+                    except Exception as e:
+                        logger.warning(f"Could not delete {item}: {e}")
         
         except Exception as e:
             logger.error(f"Error cleaning {directory}: {e}")

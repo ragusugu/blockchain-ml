@@ -21,6 +21,31 @@
 			"python": {
 				"file": "venv/lib/python3.12/site-packages/defusedxml/sax.py"
 			}
+		},
+		{
+			"label": "Build frontend",
+			"type": "shell",
+			"command": "cd /home/sugangokul/Desktop/blockchain-ml && docker build -t blockchain-ml-frontend:latest -f docker/Dockerfile.frontend ."
+		},
+		{
+			"label": "Deploy frontend to Kind",
+			"type": "shell",
+			"command": "kind load docker-image blockchain-ml-frontend:latest --name blockchain-ml && kubectl rollout restart deployment/frontend -n blockchain-ml && echo 'Frontend deployment restarted successfully'"
+		},
+		{
+			"label": "Verify frontend deployment",
+			"type": "shell",
+			"command": "echo 'Verifying frontend deployment...' && kubectl get pods -n blockchain-ml -l app=frontend && echo '' && echo 'Frontend service status:' && kubectl get svc -n blockchain-ml frontend"
+		},
+		{
+			"label": "Check frontend status",
+			"type": "shell",
+			"command": "echo 'Frontend Status Check' && echo '===================' && echo '' && echo 'Latest frontend pods:' && kubectl get pods -n blockchain-ml -l app=frontend -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.status.phase}{\"\\t\"}{.status.containerStatuses[0].imageID}{\"\\n\"}{end}' && echo '' && echo 'Image in use:' && kubectl get pods -n blockchain-ml -l app=frontend -o jsonpath='{.items[0].spec.containers[0].image}'"
+		},
+		{
+			"label": "Commit documentation",
+			"type": "shell",
+			"command": "cd /home/sugangokul/Desktop/blockchain-ml && git add FEATURE_UPDATES.md FEATURE_QUICK_GUIDE.md && git commit -m 'docs: Add feature documentation for refresh counter and Etherscan links'"
 		}
 	]
 }

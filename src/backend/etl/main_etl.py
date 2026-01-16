@@ -4,14 +4,13 @@ Coordinates Extract → Transform → Load → State tracking pipeline
 Optimized with parallel processing and batch writes
 """
 import os
-import logging
 import sys
+import logging
 import time
+from datetime import datetime, timezone
 from web3 import Web3
 from sqlalchemy import create_engine, text
-from datetime import datetime, timezone
-import sys
-import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import ETL phases
@@ -26,8 +25,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost:5432/blockchain_db')
-RPC_URL = os.getenv('RPC_URL', "https://eth-mainnet.g.alchemy.com/v2/G09aLwdbZ-zyer6rwNMGu")
+# IMPORTANT: Set DATABASE_URL and RPC_URL environment variables for production
+DATABASE_URL = os.getenv('DATABASE_URL', '')
+RPC_URL = os.getenv('RPC_URL', '')
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '10'))  # Process X blocks per run
 
 

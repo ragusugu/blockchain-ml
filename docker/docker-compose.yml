@@ -25,8 +25,8 @@ services:
   # ============ BACKEND API ============
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.backend
+      context: ..
+      dockerfile: docker/Dockerfile.backend
     container_name: blockchain-backend
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}
@@ -42,7 +42,7 @@ services:
     networks:
       - blockchain-network
     volumes:
-      - ./src/backend:/app/src/backend  # Hot reload for development
+      - ../src/backend:/app/src/backend  # Hot reload for development
       - models_cache:/app/models
     restart: unless-stopped
     healthcheck:
@@ -54,8 +54,8 @@ services:
   # ============ FRONTEND ============
   frontend:
     build:
-      context: ./src/frontend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
     container_name: blockchain-frontend
     environment:
       REACT_APP_API_URL: http://localhost:5000
@@ -76,8 +76,8 @@ services:
   # ============ ML WORKER (Real-time) ============
   ml_worker:
     build:
-      context: .
-      dockerfile: Dockerfile.worker
+      context: ..
+      dockerfile: docker/Dockerfile.worker
     container_name: blockchain-ml-worker
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}
@@ -96,8 +96,8 @@ services:
   # ============ SCHEDULER (ETL/Batch) ============
   scheduler:
     build:
-      context: .
-      dockerfile: Dockerfile.scheduler
+      context: ..
+      dockerfile: docker/Dockerfile.scheduler
     container_name: blockchain-scheduler
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}

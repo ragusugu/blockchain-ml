@@ -7,10 +7,17 @@ import {
   Chip,
   Container,
   Grid,
+  Button,
 } from '@mui/material'
 import { Zap, Wifi, TrendingUp } from 'lucide-react'
 
-function Header({ stats }) {
+function Header({ stats, processingMode, onModeChange }) {
+  const gasText =
+    stats?.gas_price_display ??
+    (typeof stats?.gas_price === 'number'
+      ? stats.gas_price.toFixed(8)
+      : stats?.gas_price);
+
   return (
     <AppBar
       position="sticky"
@@ -20,15 +27,49 @@ function Header({ stats }) {
         backdropFilter: 'blur(10px)',
       }}
     >
-      <Toolbar>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 'auto' }}>
+      <Toolbar sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ fontSize: '2rem' }}>🔗</Box>
           <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: 1 }}>
             BLOCKCHAIN FRAUD DETECTION
           </Typography>
         </Box>
 
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+        {/* Mode Switcher */}
+        {processingMode && onModeChange && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Button
+              variant={processingMode === 'scheduled' ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => onModeChange('scheduled')}
+              sx={{
+                background: processingMode === 'scheduled' ? 'rgba(255,255,255,0.2)' : 'transparent',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.3)',
+                fontWeight: 600,
+                fontSize: '0.75rem',
+              }}
+            >
+              📦 Batch
+            </Button>
+            <Button
+              variant={processingMode === 'realtime' ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => onModeChange('realtime')}
+              sx={{
+                background: processingMode === 'realtime' ? 'rgba(255,255,255,0.2)' : 'transparent',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.3)',
+                fontWeight: 600,
+                fontSize: '0.75rem',
+              }}
+            >
+              🔄 Real-Time
+            </Button>
+          </Box>
+        )}
+
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', ml: 'auto' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Wifi size={18} />
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -39,7 +80,7 @@ function Header({ stats }) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Zap size={18} />
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {stats?.gas_price ? `${stats.gas_price} Gwei` : 'Loading...'}
+              {gasText ? `${gasText} Gwei` : 'Loading...'}
             </Typography>
           </Box>
 

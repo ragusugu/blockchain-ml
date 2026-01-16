@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Box,
   Container,
@@ -43,7 +43,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import axios from 'axios'
-axios.defaults.timeout = 60000
+axios.defaults.timeout = 120000
 import OptionCard from './components/OptionCard'
 import StatCard from './components/StatCard'
 import TransactionTable from './components/TransactionTable'
@@ -60,10 +60,7 @@ function App() {
   const [processingMode, setProcessingMode] = useState(() => {
     return sessionStorage.getItem('processingMode') || null
   })
-  const [selectedOption, setSelectedOption] = useState(() => {
-    const saved = sessionStorage.getItem('selectedOption')
-    return saved ? parseInt(saved) : null
-  })
+  const [selectedOption, setSelectedOption] = useState(null)  // Don't restore from sessionStorage - reset on mode change
   const [blockCount, setBlockCount] = useState(() => {
     const saved = sessionStorage.getItem('blockCount')
     return saved ? parseInt(saved) : 1
@@ -73,46 +70,26 @@ function App() {
   const [options, setOptions] = useState([])
   const [loading, setLoading] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
-  const [autoRefresh, setAutoRefresh] = useState(() => {
-    const saved = sessionStorage.getItem('autoRefresh')
-    return saved === 'true'
-  })
+  const [autoRefresh, setAutoRefresh] = useState(false)  // Don't restore - always start fresh
   const [error, setError] = useState(null)
   const [refreshInterval, setRefreshInterval] = useState(() => {
     const saved = sessionStorage.getItem('refreshInterval')
     return saved ? parseInt(saved) : 300000  // Default 5 minutes
   })
-  const [scheduleFrequency, setScheduleFrequency] = useState(() => {
-    return sessionStorage.getItem('scheduleFrequency') || '5m'
-  })
+  const [scheduleFrequency, setScheduleFrequency] = useState('5m')  // Don't restore - set by mode
   const [modelEnabled, setModelEnabled] = useState(true)
   const [aiLoaded, setAiLoaded] = useState(true)
   const [nextRefreshTime, setNextRefreshTime] = useState(null)
+  const [refreshCount, setRefreshCount] = useState(0)
 
-  // Save to sessionStorage whenever state changes
+  // Save only processingMode to sessionStorage
   useEffect(() => {
     if (processingMode) sessionStorage.setItem('processingMode', processingMode)
   }, [processingMode])
 
   useEffect(() => {
-    if (selectedOption !== null) sessionStorage.setItem('selectedOption', selectedOption.toString())
-  }, [selectedOption])
-
-  useEffect(() => {
     sessionStorage.setItem('blockCount', blockCount.toString())
   }, [blockCount])
-
-  useEffect(() => {
-    sessionStorage.setItem('autoRefresh', autoRefresh.toString())
-  }, [autoRefresh])
-
-  useEffect(() => {
-    sessionStorage.setItem('refreshInterval', refreshInterval.toString())
-  }, [refreshInterval])
-
-  useEffect(() => {
-    sessionStorage.setItem('scheduleFrequency', scheduleFrequency)
-  }, [scheduleFrequency])
 
   // Restore session on mount and check health
   useEffect(() => {
@@ -158,6 +135,7 @@ function App() {
     // Don't start auto-refresh if no transactions have been loaded yet
     if (!autoRefresh || !selectedOption || transactions.length === 0) {
       setNextRefreshTime(null)
+      setRefreshCount(0)
       return
     }
     
@@ -169,6 +147,7 @@ function App() {
     const interval = setInterval(() => {
       console.log(`🔄 Auto-refresh triggered (interval: ${refreshInterval}ms = ${scheduleFrequency})`)
       fetchTransactions()
+      setRefreshCount(prev => prev + 1)
       setNextRefreshTime(Date.now() + refreshInterval)
     }, refreshInterval)
     
@@ -225,7 +204,7 @@ function App() {
     }
   }
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     if (!selectedOption) {
       setError('Please select an option first')
       return
@@ -234,56 +213,99 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      // Start async job to avoid Cloudflare 524
-      const start = await axios.post('/api/transactions/async', {
-        mode: processingMode,
-        option: selectedOption.toString(),
-        block_count: blockCount,
-      })
-
-      const jobId = start.data?.job_id
-      if (!jobId) {
-        throw new Error('Failed to start processing job')
-      }
-
-      // Poll for completion (up to ~90s)
-      const deadline = Date.now() + 90000
-      let result = null
-      while (Date.now() < deadline) {
-        const statusResp = await axios.get(`/api/transactions/job/${jobId}`)
-        if (statusResp.data.status === 'complete') {
-          result = statusResp.data.result
-          break
-        }
-        if (statusResp.data.status === 'error') {
-          throw new Error(statusResp.data.error || 'Processing failed')
-        }
-        await new Promise(r => setTimeout(r, 3000))
-      }
-
-      if (!result) {
-        throw new Error('Processing timed out. Please try again.')
-      }
-
-      if (result.error) {
-        setError(`❌ ${result.error}: ${result.details || ''}`)
-        return
-      }
-
-      const newTxs = result.transactions || []
-      if (newTxs.length > 0) {
-        setTransactions((prevTxs) => {
-          const existingHashes = new Set(prevTxs.map(tx => tx.tx_hash || tx.transaction_hash))
-          const uniqueNewTxs = newTxs.filter(tx => !existingHashes.has(tx.tx_hash || tx.transaction_hash))
-          if (uniqueNewTxs.length > 0) {
-            console.log(`✨ Found ${uniqueNewTxs.length} new transaction(s), prepending to list`)
-            return [...uniqueNewTxs, ...prevTxs]
-          }
-          return prevTxs
+      // Try async job first to avoid Cloudflare 524
+      try {
+        const start = await axios.post('/api/transactions/async', {
+          mode: processingMode,
+          option: selectedOption.toString(),
+          block_count: blockCount,
         })
+
+        const jobId = start.data?.job_id
+        if (!jobId) {
+          throw new Error('Failed to start processing job')
+        }
+
+        // Poll for completion (up to ~110s)
+        const deadline = Date.now() + 110000
+        let result = null
+        while (Date.now() < deadline) {
+          const statusResp = await axios.get(`/api/transactions/job/${jobId}`)
+          
+          // Handle job not found - backend may have restarted
+          if (statusResp.status === 404) {
+            throw new Error('Job expired, will retry with direct call')
+          }
+          
+          if (statusResp.data.status === 'complete') {
+            result = statusResp.data.result
+            break
+          }
+          if (statusResp.data.status === 'error') {
+            throw new Error(statusResp.data.error || 'Processing failed')
+          }
+          await new Promise(r => setTimeout(r, 3000))
+        }
+
+        if (!result) {
+          throw new Error('Processing timed out, will retry')
+        }
+
+        if (result.error) {
+          setError(`❌ ${result.error}: ${result.details || ''}`)
+          return
+        }
+
+        const newTxs = result.transactions || []
+        if (newTxs.length > 0) {
+          setTransactions((prevTxs) => {
+            const existingHashes = new Set(prevTxs.map(tx => tx.tx_hash || tx.transaction_hash))
+            const uniqueNewTxs = newTxs.filter(tx => !existingHashes.has(tx.tx_hash || tx.transaction_hash))
+            if (uniqueNewTxs.length > 0) {
+              console.log(`✨ Found ${uniqueNewTxs.length} new transaction(s), prepending to list`)
+              return [...uniqueNewTxs, ...prevTxs]
+            }
+            return prevTxs
+          })
+        }
+
+        setStats(result.stats)
+        return // Success!
+        
+      } catch (asyncErr) {
+        // If async fails (job not found, timeout, etc), fall back to direct call
+        console.warn('Async job failed, falling back to direct call:', asyncErr.message)
+        
+        // Fallback to regular synchronous endpoint
+        const response = await axios.post('/api/transactions', {
+          mode: processingMode,
+          option: selectedOption.toString(),
+          block_count: blockCount,
+        })
+
+        const result = response.data
+        
+        if (result.error) {
+          setError(`❌ ${result.error}: ${result.details || ''}`)
+          return
+        }
+
+        const newTxs = result.transactions || []
+        if (newTxs.length > 0) {
+          setTransactions((prevTxs) => {
+            const existingHashes = new Set(prevTxs.map(tx => tx.tx_hash || tx.transaction_hash))
+            const uniqueNewTxs = newTxs.filter(tx => !existingHashes.has(tx.tx_hash || tx.transaction_hash))
+            if (uniqueNewTxs.length > 0) {
+              console.log(`✨ Found ${uniqueNewTxs.length} new transaction(s), prepending to list`)
+              return [...uniqueNewTxs, ...prevTxs]
+            }
+            return prevTxs
+          })
+        }
+
+        setStats(result.stats)
       }
 
-      setStats(result.stats)
     } catch (err) {
       console.error('Error fetching transactions:', err)
       const errorMsg = err.response?.data?.error || err.message || 'Unknown error'
@@ -292,7 +314,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [selectedOption, processingMode, blockCount])
 
   const toggleModel = async (enabled) => {
     setModelEnabled(enabled)
@@ -310,26 +332,71 @@ function App() {
     }
   }
 
-  const handleSelectMode = (mode) => {
+  const handleSelectMode = async (mode) => {
+    // Reset ALL state when switching modes to prevent cross-mode contamination
+    setSelectedOption(null)
+    setTransactions([])
+    setStats(null)
+    setSelectedTx(null)  // Also close any open details panel
+    setAutoRefresh(false)
+    setRefreshCount(0)
+    setError(null)
+    setLoading(false)
+    setNextRefreshTime(null)
+    
+    // Clear sessionStorage for mode-specific data
+    sessionStorage.removeItem('selectedOption')
+    sessionStorage.removeItem('autoRefresh')
+    sessionStorage.removeItem('scheduleFrequency')
+    
+    // Set new mode
     setProcessingMode(mode)
+    sessionStorage.setItem('processingMode', mode)
+    
+    // Configure defaults based on mode
+    if (mode === 'realtime') {
+      setRefreshInterval(10000) // 10 seconds for real-time
+      setScheduleFrequency('10s')
+    } else if (mode === 'scheduled') {
+      setRefreshInterval(300000) // 5 minutes for scheduled/batch
+      setScheduleFrequency('5m')
+    }
+    
     // Fetch options for the selected mode
-    fetchOptionsForMode(mode)
+    try {
+      await fetchOptionsForMode(mode)
+      console.log(`✅ Successfully switched to ${mode} mode`)
+    } catch (err) {
+      console.error(`❌ Failed to switch to ${mode} mode:`, err)
+      setError(`Failed to load ${mode} mode options`)
+    }
   }
 
   const handleSelectOption = (optionId) => {
-    setSelectedOption(optionId)
-    // Auto-enable refresh for real-time mode
-    if (processingMode === 'realtime') {
-      setAutoRefresh(true)
-      setRefreshInterval(10000) // 10 seconds for real-time
+    // Only set if it's different from current selection
+    if (selectedOption !== optionId) {
+      setSelectedOption(optionId)
+      setTransactions([])  // Clear old transactions when switching options
+      setStats(null)
+      setError(null)
+      
+      // Auto-enable refresh for real-time mode
+      if (processingMode === 'realtime') {
+        setAutoRefresh(true)
+        setRefreshInterval(10000) // 10 seconds for real-time
+      }
     }
   }
 
   const handleFetch = () => {
+    if (!selectedOption) {
+      setError('⚠️ Please select an option first')
+      return
+    }
     fetchTransactions()
   }
 
-  const handleViewDetails = async (hash) => {
+  const handleViewDetails = useCallback(async (hash) => {
     setLoading(true)
     try {
       const response = await axios.get(`/api/transaction/${hash}`)
@@ -340,7 +407,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   const handleBackToMode = () => {
     setProcessingMode(null)
@@ -363,7 +430,7 @@ function App() {
 
   return (
     <Box sx={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
-      <Header stats={stats} />
+      <Header stats={stats} processingMode={processingMode} onModeChange={handleSelectMode} />
 
       <Container maxWidth="xl" sx={{ py: 4 }}>
         {error && (
@@ -396,14 +463,23 @@ function App() {
                 Processing Options
               </Typography>
 
-              {options.map((option) => (
-                <OptionCard
-                  key={option.id}
-                  option={option}
-                  isSelected={selectedOption === option.id}
-                  onSelect={() => handleSelectOption(option.id)}
-                />
-              ))}
+              {options && options.length > 0 ? (
+                options.map((option) => (
+                  <OptionCard
+                    key={option.id}
+                    option={option}
+                    isSelected={selectedOption === option.id}
+                    onSelect={() => {
+                      console.log(`🎯 Selected option: ${option.id} - ${option.name}`)
+                      handleSelectOption(option.id)
+                    }}
+                  />
+                ))
+              ) : (
+                <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 3 }}>
+                  ⏳ Loading options for {processingMode} mode...
+                </Typography>
+              )}
 
               <Box sx={{ mt: 'auto', pt: 3, borderTop: '1px solid #334155' }}>
                 <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
@@ -514,24 +590,28 @@ function App() {
                     />
 
                     {autoRefresh && (
-                      <Chip
-                        icon={<Clock size={14} />}
-                        label={`Refreshing every ${scheduleFrequency}`}
-                        size="small"
-                        sx={{ 
-                          mt: 1.5, 
-                          width: '100%',
-                          background: 'rgba(59, 130, 246, 0.2)',
-                          borderColor: '#3b82f6',
-                          color: '#fff',
-                          animation: 'pulse 2s infinite',
-                          '@keyframes pulse': {
-                            '0%, 100%': { opacity: 1 },
-                            '50%': { opacity: 0.7 },
-                          }
-                        }}
-                        variant="outlined"
-                      />
+                      <Box sx={{ mt: 1.5 }}>
+                        <Chip
+                          icon={<Clock size={14} />}
+                          label={`Refreshing every ${scheduleFrequency}`}
+                          size="small"
+                          sx={{ 
+                            width: '100%',
+                            background: 'rgba(59, 130, 246, 0.2)',
+                            borderColor: '#3b82f6',
+                            color: '#fff',
+                            animation: 'pulse 2s infinite',
+                            '@keyframes pulse': {
+                              '0%, 100%': { opacity: 1 },
+                              '50%': { opacity: 0.7 },
+                            }
+                          }}
+                          variant="outlined"
+                        />
+                        <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#94a3b8', textAlign: 'center' }}>
+                          📊 Total Refreshes: <span style={{ color: '#3b82f6', fontWeight: 700 }}>{refreshCount}</span>
+                        </Typography>
+                      </Box>
                     )}
                   </Box>
                 )}
@@ -701,7 +781,7 @@ function App() {
                 },
                 {
                   label: 'Success Rate',
-                  value: `${((stats.success_rate || 0) * 100).toFixed(1)}%`,
+                  value: stats.success_rate || '0%',
                   icon: <CheckCircle size={24} />,
                   color: '#10b981',
                 },

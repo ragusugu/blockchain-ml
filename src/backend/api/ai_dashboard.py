@@ -6,11 +6,11 @@ Optimized with performance monitoring and metrics
 import os
 import json
 import logging
+import sys
 import time
 from datetime import datetime
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-import sys
 import pandas as pd
 import numpy as np
 from web3 import Web3
@@ -43,6 +43,11 @@ performance_metrics = {
 # Simple in-memory job store
 jobs = {}
 
+# Response cache with TTL (time-to-live)
+from datetime import timedelta
+response_cache = {}
+CACHE_TTL = 30  # seconds
+
 # Initialize cleanup manager
 cleanup_manager = DiskCleanupManager(threshold_percent=20)
 
@@ -50,8 +55,9 @@ app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path='/')
 CORS(app)
 
 # Configuration
-RPC_URL = os.getenv('RPC_URL', "https://eth-mainnet.g.alchemy.com/v2/G09aLwdbZ-zyer6rwNMGu")
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost:5432/blockchain_db')
+# IMPORTANT: Set RPC_URL and DATABASE_URL environment variables for production
+RPC_URL = os.getenv('RPC_URL', '')
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 MODEL_ENABLED = os.getenv('MODEL_ENABLED', 'true').lower() == 'true'
 MAX_BLOCKS_PER_REQUEST = int(os.getenv('MAX_BLOCKS_PER_REQUEST', '1'))
 
@@ -66,12 +72,14 @@ db_connection = None
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
+    from psycopg2 import pool
     HAS_POSTGRES = True
 except ImportError:
     HAS_POSTGRES = False
     logger.warning("⚠️ psycopg2 not installed. PostgreSQL caching disabled.")
-current_data = None
-_initialized = False
+
+# Connection pool for better performance
+db_pool = None
 
 
 def initialize():
@@ -288,18 +296,31 @@ def get_transactions_job(job_id):
 
 
 def get_postgres_connection():
-    """Get or create PostgreSQL connection"""
-    global db_connection
+    """Get connection from pool for better performance"""
+    global db_pool
     if not HAS_POSTGRES:
         return None
     
     try:
-        if db_connection is None or db_connection.closed:
-            db_connection = psycopg2.connect(DATABASE_URL)
-        return db_connection
+        # Initialize pool on first use
+        if db_pool is None:
+            db_pool = psycopg2.pool.SimpleConnectionPool(
+                minconn=2,
+                maxconn=10,
+                dsn=DATABASE_URL
+            )
+            logger.info("✅ PostgreSQL connection pool initialized (2-10 connections)")
+        
+        return db_pool.getconn()
     except Exception as e:
-        logger.error(f"Failed to connect to PostgreSQL: {e}")
+        logger.error(f"Failed to get connection from pool: {e}")
         return None
+
+def release_postgres_connection(conn):
+    """Return connection to pool"""
+    global db_pool
+    if db_pool and conn:
+        db_pool.putconn(conn)
 
 
 def get_cached_transactions(start_block, end_block, limit=100):
@@ -336,6 +357,9 @@ def get_cached_transactions(start_block, end_block, limit=100):
     except Exception as e:
         logger.error(f"Error reading from PostgreSQL: {e}")
         return None
+    finally:
+        # Always return connection to pool
+        release_postgres_connection(conn)
 
 
 # ============================================================
@@ -355,7 +379,8 @@ def ready():
     try:
         if w3 is not None:
             ready = w3.is_connected()
-    except:
+    except Exception as e:
+        logger.warning(f"Readiness check failed: {e}")
         ready = False
     
     if ready:
@@ -813,13 +838,16 @@ def get_transaction_details(tx_hash):
 def get_stats():
     """Get overall statistics"""
     try:
-        if not w3.is_connected():
+        ensure_initialized()
+        if not w3 or not w3.is_connected():
             return jsonify({'error': 'Web3 not connected'}), 500
         
         latest_block = w3.eth.block_number
+        gas_price_gwei = w3.from_wei(w3.eth.gas_price, 'gwei')
         stats = {
             'latest_block': latest_block,
-            'gas_price': float(w3.from_wei(w3.eth.gas_price, 'gwei')),
+            'gas_price': float(gas_price_gwei),
+            'gas_price_display': f"{gas_price_gwei:.8f}",
             'connected': True,
             'timestamp': datetime.now().isoformat()
         }

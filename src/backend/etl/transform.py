@@ -1,10 +1,12 @@
 """
 Transform Phase of ETL Pipeline
 Cleans and normalizes extracted data using Pandas
+Optimized for performance with vectorized operations
 """
 import logging
 import pandas as pd
 from datetime import datetime, timezone
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +29,23 @@ def transform_data(rows):
     df = pd.DataFrame(rows)
     logger.info(f"Created DataFrame with {len(df)} rows")
     
-    # Data type conversions
-    df['block_number'] = df['block_number'].astype('int64')
-    df['transaction_index'] = df['transaction_index'].astype('int64')
-    df['timestamp'] = df['timestamp'].astype('int64')
-    df['value_eth'] = df['value_eth'].astype('float64')
-    df['gas'] = df['gas'].astype('int64')
-    df['gas_price_gwei'] = df['gas_price_gwei'].astype('float64')
-    df['gas_used'] = df['gas_used'].astype('int64')
-    df['cumulative_gas_used'] = df['cumulative_gas_used'].astype('int64')
-    df['status'] = df['status'].astype('int8')
+    # Vectorized data type conversions (faster than individual assignments)
+    dtype_map = {
+        'block_number': 'int64',
+        'transaction_index': 'int64',
+        'timestamp': 'int64',
+        'value_eth': 'float64',
+        'gas': 'int64',
+        'gas_price_gwei': 'float64',
+        'gas_used': 'int64',
+        'cumulative_gas_used': 'int64',
+        'status': 'int8'
+    }
+    
+    # Apply conversions efficiently
+    for col, dtype in dtype_map.items():
+        if col in df.columns:
+            df[col] = df[col].astype(dtype)
     
     # Handle missing values
     df['to_address'] = df['to_address'].fillna('')

@@ -1,22 +1,26 @@
 """
 Extract Phase of ETL Pipeline
 Converts blockchain data into flat rows for processing
-Optimized for parallel RPC calls and batch processing
+Optimized for parallel RPC calls, batch processing, and caching
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 import time
+import hashlib
 
 logger = logging.getLogger(__name__)
 
 # Performance tracking
 _request_times = []
 
+# Cache for block data (prevents redundant RPC calls)
+_block_cache = {}
+
 
 def extract_block(block_number, w3):
     """
-    Extract transaction data from a block.
+    Extract transaction data from a block (with caching).
     
     Args:
         block_number: Block number to extract
@@ -25,6 +29,12 @@ def extract_block(block_number, w3):
     Returns:
         List of dictionaries with transaction data
     """
+    # Check cache first
+    cache_key = f"block_{block_number}"
+    if cache_key in _block_cache:
+        logger.debug(f"Using cached data for block {block_number}")
+        return _block_cache[cache_key]
+    
     try:
         block = w3.eth.get_block(block_number, full_transactions=True)
         rows = []
@@ -56,6 +66,12 @@ def extract_block(block_number, w3):
                 continue
 
         logger.info(f"Extracted {len(rows)} transactions from block {block_number}")
+        
+        # Cache the result (limit cache size to 100 blocks)
+        if len(_block_cache) > 100:
+            _block_cache.pop(next(iter(_block_cache)))  # Remove oldest
+        _block_cache[cache_key] = rows
+        
         return rows
 
     except Exception as e:

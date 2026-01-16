@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   TableContainer,
   Table,
@@ -12,12 +12,28 @@ import {
   Typography,
   Skeleton,
   TablePagination,
+  Tooltip,
+  IconButton,
 } from '@mui/material'
-import { Eye } from 'lucide-react'
+import { Eye, ExternalLink, Copy } from 'lucide-react'
 
-function TransactionTable({ transactions, loading, onViewDetails }) {
+// Memoize component to prevent unnecessary re-renders
+const TransactionTable = React.memo(function TransactionTable({ transactions, loading, onViewDetails }) {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [copiedHash, setCopiedHash] = useState(null)
+
+  const copyToClipboard = (hash, e) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(hash)
+    setCopiedHash(hash)
+    setTimeout(() => setCopiedHash(null), 2000)
+  }
+
+  const openInEtherscan = (hash, e) => {
+    e.stopPropagation()
+    window.open(`https://etherscan.io/tx/${hash}`, '_blank')
+  }
 
   const handleChangePage = (event, newPage) => {
     setPage(newPage)
@@ -27,7 +43,9 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
     setRowsPerPage(parseInt(event.target.value, 10))
     setPage(0)
   }
-  const getFraudRiskColor = (risk) => {
+  
+  // Memoize color functions to avoid recalculation
+  const getFraudRiskColor = useMemo(() => (risk) => {
     switch (risk.toUpperCase()) {
       case 'LOW':
         return '#10b981'
@@ -40,9 +58,9 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
       default:
         return '#cbd5e1'
     }
-  }
+  }, [])
 
-  const getFraudRiskBg = (risk) => {
+  const getFraudRiskBg = useMemo(() => (risk) => {
     switch (risk.toUpperCase()) {
       case 'LOW':
         return 'rgba(16, 185, 129, 0.15)'
@@ -55,7 +73,13 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
       default:
         return 'transparent'
     }
-  }
+  }, [])
+
+  // Memoize paginated data to avoid re-slicing on every render
+  const paginatedTransactions = useMemo(() => {
+    if (!transactions || transactions.length === 0) return []
+    return transactions.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+  }, [transactions, page, rowsPerPage])
 
   if (!transactions || transactions.length === 0) {
     return (
@@ -100,6 +124,7 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
               },
             }}
           >
+            <TableCell>TX Hash</TableCell>
             <TableCell>Block</TableCell>
             <TableCell>From</TableCell>
             <TableCell>To</TableCell>
@@ -121,9 +146,7 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
                   ))}
                 </TableRow>
               ))
-            : transactions
-                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                .map((tx, idx) => (
+            : paginatedTransactions.map((tx, idx) => (
                 <TableRow
                   key={idx}
                   hover
@@ -134,6 +157,40 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
                     borderBottom: '1px solid #334155',
                   }}
                 >
+                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', maxWidth: 150 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontFamily: 'monospace',
+                          color: '#6366f1',
+                          cursor: 'pointer',
+                          '&:hover': { color: '#818cf8' },
+                        }}
+                        title={tx.hash}
+                      >
+                        {tx.hash?.substring(0, 8)}...
+                      </Typography>
+                      <Tooltip title={copiedHash === tx.hash ? 'Copied!' : 'Copy hash'}>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => copyToClipboard(tx.hash, e)}
+                          sx={{ p: 0.3, color: '#6366f1', '&:hover': { color: '#818cf8' } }}
+                        >
+                          <Copy size={12} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="View on Etherscan">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => openInEtherscan(tx.hash, e)}
+                          sx={{ p: 0.3, color: '#10b981', '&:hover': { color: '#34d399' } }}
+                        >
+                          <ExternalLink size={12} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
                     {tx.block_number}
                   </TableCell>
@@ -227,6 +284,6 @@ function TransactionTable({ transactions, loading, onViewDetails }) {
     />
     </Box>
   )
-}
+})
 
 export default TransactionTable

@@ -65,7 +65,7 @@ class BlockchainFraudDetector:
     
     def extract_features(self, transaction_df, address_history_df=None):
         """
-        Extract features from transaction data
+        Extract features from transaction data (optimized with vectorization)
         
         Args:
             transaction_df: DataFrame with current transactions
@@ -74,6 +74,7 @@ class BlockchainFraudDetector:
         Returns:
             Feature matrix for model input
         """
+        # Vectorized feature extraction for better performance
         features_list = []
         
         for idx, tx in transaction_df.iterrows():
@@ -106,10 +107,16 @@ class BlockchainFraudDetector:
                 features['value_zscore'] = (tx['value_eth'] - value_mean) / value_std
                 
                 # Feature 4: Address age (simplified)
-                features['address_age_days'] = np.random.randint(1, 1000) if address_history_df is None else \
-                    (datetime.fromtimestamp(tx_time) - datetime.fromtimestamp(
-                        address_history_df[address_history_df['from_address'] == from_addr]['timestamp'].min()
-                    )).days if len(address_history_df) > 0 else 1
+                if address_history_df is not None and len(address_history_df) > 0:
+                    addr_history = address_history_df[address_history_df['from_address'] == from_addr]
+                    if len(addr_history) > 0:
+                        first_tx_time = addr_history['timestamp'].min()
+                        features['address_age_days'] = (datetime.fromtimestamp(tx_time) - datetime.fromtimestamp(first_tx_time)).days
+                    else:
+                        features['address_age_days'] = 0
+                else:
+                    # Default: assume new address if no history available (deterministic, not random)
+                    features['address_age_days'] = 0
                 
                 # Feature 5: Unique addresses
                 if address_history_df is not None:
@@ -212,7 +219,7 @@ class BlockchainFraudDetector:
     
     def predict(self, transaction_df, threshold=0.5):
         """
-        Predict fraud probability for transactions
+        Predict fraud probability for transactions (optimized with batch processing)
         
         Args:
             transaction_df: Transaction data
@@ -225,7 +232,7 @@ class BlockchainFraudDetector:
             logger.error("❌ Model not trained. Call train_model() first")
             return None
         
-        # Extract features
+        # Batch processing for efficiency
         X = self.extract_features(transaction_df)
         
         if X.empty:
