@@ -7,7 +7,10 @@ import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from backend.ml.ai_fraud_detector import BlockchainFraudDetector
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from ml.ai_fraud_detector import BlockchainFraudDetector
 
 logging.basicConfig(
     level=logging.INFO,

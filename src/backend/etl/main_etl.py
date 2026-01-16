@@ -1,17 +1,22 @@
 """
 Main ETL Orchestration Script
 Coordinates Extract → Transform → Load → State tracking pipeline
+Optimized with parallel processing and batch writes
 """
 import os
 import logging
 import sys
+import time
 from web3 import Web3
 from sqlalchemy import create_engine, text
 from datetime import datetime, timezone
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import ETL phases
-from backend.etl.extract import extract_blocks
-from backend.etl.transform import transform_data, validate_data
+from etl.extract import extract_blocks
+from etl.transform import transform_data, validate_data
 
 # Configure logging
 logging.basicConfig(
@@ -166,17 +171,33 @@ class BlockchainETL:
             logger.error(f"TRANSFORM failed: {e}")
             return None
     
-    def load_phase(self, df):
-        """Load phase: Insert data into database"""
+    def load_phase(self, df, batch_size=1000):
+        """
+        Load phase: Insert data into database with optimized batching
+        
+        Args:
+            df: DataFrame to load
+            batch_size: Number of rows per batch insert
+        """
         try:
             if df is None or df.empty:
                 logger.warning("LOAD: No data to load")
                 return 0
             
-            logger.info(f"LOAD: Inserting {len(df)} rows")
-            df.to_sql('transaction_receipts', self.engine, if_exists='append', index=False)
-            logger.info(f"LOAD: Successfully inserted {len(df)} rows")
-            return len(df)
+            load_start = time.time()
+            logger.info(f"LOAD: Inserting {len(df)} rows (batch size: {batch_size})")
+            
+            # Batch insert for better performance
+            rows_inserted = 0
+            for i in range(0, len(df), batch_size):
+                batch = df.iloc[i:i+batch_size]
+                batch.to_sql('transaction_receipts', self.engine, if_exists='append', index=False)
+                rows_inserted += len(batch)
+                logger.debug(f"LOAD: Inserted batch {i//batch_size + 1}/{(len(df)-1)//batch_size + 1}")
+            
+            elapsed = time.time() - load_start
+            logger.info(f"✅ LOAD: Successfully inserted {rows_inserted} rows in {elapsed:.2f}s")
+            return rows_inserted
         except Exception as e:
             logger.error(f"LOAD failed: {e}")
             return 0

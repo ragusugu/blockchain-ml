@@ -1,10 +1,17 @@
 """
 Extract Phase of ETL Pipeline
 Converts blockchain data into flat rows for processing
+Optimized for parallel RPC calls and batch processing
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
+import time
 
 logger = logging.getLogger(__name__)
+
+# Performance tracking
+_request_times = []
 
 
 def extract_block(block_number, w3):
@@ -56,23 +63,50 @@ def extract_block(block_number, w3):
         return []
 
 
-def extract_blocks(start_block, end_block, w3):
+def extract_blocks(start_block, end_block, w3, parallel=True, max_workers=5):
     """
-    Extract data from multiple blocks.
+    Extract data from multiple blocks with parallel optimization.
     
     Args:
         start_block: Starting block number
         end_block: Ending block number (inclusive)
         w3: Web3 instance
+        parallel: Use parallel extraction (default True for speed)
+        max_workers: Number of parallel threads (default 5)
     
     Returns:
         List of all transaction rows from blocks
     """
+    start_time = time.time()
     all_rows = []
     
-    for block_num in range(start_block, end_block + 1):
-        rows = extract_block(block_num, w3)
-        all_rows.extend(rows)
+    block_nums = list(range(start_block, end_block + 1))
     
-    logger.info(f"Extracted {len(all_rows)} total transactions from blocks {start_block}-{end_block}")
+    if parallel and len(block_nums) > 1:
+        # Parallel extraction using ThreadPoolExecutor
+        logger.info(f"🚀 Parallel extraction: {len(block_nums)} blocks with {max_workers} workers")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(extract_block, block_num, w3): block_num for block_num in block_nums}
+            
+            for future in as_completed(futures):
+                block_num = futures[future]
+                try:
+                    rows = future.result()
+                    all_rows.extend(rows)
+                except Exception as e:
+                    logger.error(f"Failed to extract block {block_num}: {e}")
+    else:
+        # Sequential fallback
+        for block_num in block_nums:
+            rows = extract_block(block_num, w3)
+            all_rows.extend(rows)
+    
+    elapsed = time.time() - start_time
+    logger.info(f"✅ Extracted {len(all_rows)} transactions from {len(block_nums)} blocks in {elapsed:.2f}s")
+    
+    # Performance metrics
+    if elapsed > 0:
+        tx_per_sec = len(all_rows) / elapsed
+        logger.info(f"📊 Performance: {tx_per_sec:.0f} tx/sec, {elapsed/len(block_nums):.2f}s/block")
+    
     return all_rows

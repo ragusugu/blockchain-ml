@@ -66,6 +66,8 @@ function App() {
   const [error, setError] = useState(null)
   const [refreshInterval, setRefreshInterval] = useState(5000) // milliseconds
   const [scheduleFrequency, setScheduleFrequency] = useState('5s') // for scheduled mode
+  const [modelEnabled, setModelEnabled] = useState(true)
+  const [aiLoaded, setAiLoaded] = useState(true)
 
   // Fetch options on mount and check health
   useEffect(() => {
@@ -76,11 +78,23 @@ function App() {
   const checkHealth = async () => {
     try {
       const response = await axios.get('/api/health')
-      if (!response.data.w3_connected) {
+      const { w3_connected, ai_loaded, model_enabled } = response.data
+
+      setModelEnabled(model_enabled)
+      setAiLoaded(ai_loaded)
+
+      if (!w3_connected) {
         setError('⚠️ Web3 connection failed. Check your RPC URL and network connection.')
+        return
       }
-      if (!response.data.ai_loaded) {
+
+      if (model_enabled && !ai_loaded) {
         setError('⚠️ AI models not loaded. Models may still be loading...')
+        return
+      }
+
+      if (!model_enabled) {
+        setError(null)
       }
     } catch (err) {
       console.error('Health check failed:', err)
@@ -102,10 +116,22 @@ function App() {
       const response = await axios.get('/api/options', {
         params: { mode }
       })
+      
+      if (!response.data.options || response.data.options.length === 0) {
+        setError(`❌ No options available for ${mode} mode`)
+        setOptions([])
+        return
+      }
+      
       setOptions(response.data.options)
+      setError(null)  // Clear any previous errors
+      console.log(`✅ Loaded ${response.data.options.length} options for ${mode} mode`)
     } catch (err) {
       console.error('Error fetching options:', err)
-      setError('Failed to load options for this mode')
+      const errorMsg = err.response?.data?.error || err.message || 'Unknown error'
+      const errorDetails = err.response?.data?.details || ''
+      setError(`❌ Failed to load options for ${mode} mode: ${errorMsg}${errorDetails ? ' - ' + errorDetails : ''}`)
+      setOptions([])
     }
   }
 
@@ -147,6 +173,22 @@ function App() {
       setError(`Failed to fetch transactions: ${errorMsg}${errorDetails ? ' - ' + errorDetails : ''}`)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const toggleModel = async (enabled) => {
+    setModelEnabled(enabled)
+    try {
+      await axios.post('/api/model-toggle', { enabled })
+      if (enabled) {
+        // Re-run health to confirm model loads
+        await checkHealth()
+      }
+    } catch (err) {
+      console.error('Error toggling model:', err)
+      setModelEnabled(!enabled)
+      const errorMsg = err.response?.data?.message || 'Failed to update model state'
+      setError(`❌ ${errorMsg}`)
     }
   }
 
@@ -267,9 +309,18 @@ function App() {
                     mb: 2,
                     py: 1.5,
                     fontWeight: 600,
+                    transition: 'all 0.3s ease',
+                    opacity: loading ? 0.8 : 1,
                   }}
                 >
-                  {loading ? <CircularProgress size={20} /> : '🔄 Fetch & Analyze'}
+                  {loading ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CircularProgress size={16} sx={{ color: 'inherit' }} />
+                      <span>Analyzing...</span>
+                    </Box>
+                  ) : (
+                    '🔄 Fetch & Analyze'
+                  )}
                 </Button>
 
                 {/* Scheduling Settings - Only for Scheduled Mode */}
@@ -496,8 +547,10 @@ function App() {
                       <Typography variant="caption" color="textSecondary">
                         ML Model
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#8b5cf6' }}>
-                        {processingMode === 'scheduled' ? 'Random Forest + Anomaly' : 'Random Forest (Pre-trained)'}
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: modelEnabled ? '#8b5cf6' : '#f59e0b' }}>
+                        {modelEnabled
+                          ? (processingMode === 'scheduled' ? 'Random Forest + Anomaly' : 'Random Forest (Pre-trained)')
+                          : 'Disabled (pass-through)'}
                       </Typography>
                     </Box>
                   </Grid>
@@ -586,25 +639,47 @@ function App() {
                 }}
               >
                 <CardContent>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Status
-                  </Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 600, color: '#10b981' }}>
-                    ✓ Loaded
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="subtitle2" color="textSecondary">
+                      Status
+                    </Typography>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={modelEnabled}
+                          onChange={(e) => toggleModel(e.target.checked)}
+                          sx={{
+                            '& .MuiSwitch-switchBase.Mui-checked': {
+                              color: '#3b82f6',
+                            },
+                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                              backgroundColor: '#3b82f6',
+                            },
+                          }}
+                        />
+                      }
+                      label={modelEnabled ? 'AI On' : 'AI Off'}
+                      labelPlacement="start"
+                      sx={{ m: 0 }}
+                    />
+                  </Box>
+
+                  <Typography variant="body1" sx={{ fontWeight: 600, color: modelEnabled && aiLoaded ? '#10b981' : '#f59e0b' }}>
+                    {modelEnabled ? (aiLoaded ? '✓ Loaded' : '⏳ Loading...') : '⚪ Disabled'}
                   </Typography>
 
                   <Typography variant="subtitle2" color="textSecondary" sx={{ mt: 2 }}>
                     Accuracy
                   </Typography>
                   <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    94.5%
+                    {modelEnabled ? '94.5%' : 'N/A'}
                   </Typography>
 
                   <Typography variant="subtitle2" color="textSecondary" sx={{ mt: 2 }}>
                     ROC-AUC
                   </Typography>
                   <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    0.982
+                    {modelEnabled ? '0.982' : 'N/A'}
                   </Typography>
                 </CardContent>
               </Card>
@@ -651,36 +726,26 @@ function App() {
         onClose={() => setSelectedTx(null)}
       />
 
-      {/* Loading Overlay */}
+      {/* Loading Bar Under Header */}
       {loading && (
         <Box
           sx={{
             position: 'fixed',
-            top: 0,
+            top: 64,
             left: 0,
             right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            backdropFilter: 'blur(5px)',
+            zIndex: 100,
+            height: 4,
+            background: 'linear-gradient(90deg, #6366f1 0%, #ec4899 50%, #6366f1 100%)',
+            backgroundSize: '200% 100%',
+            animation: 'shimmer 2s infinite',
+            '@keyframes shimmer': {
+              '0%': { backgroundPosition: '200% 0' },
+              '100%': { backgroundPosition: '-200% 0' },
+            },
+            boxShadow: '0 0 20px rgba(99, 102, 241, 0.5)',
           }}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress
-              size={60}
-              sx={{
-                color: '#6366f1',
-                mb: 2,
-              }}
-            />
-            <Typography sx={{ color: '#cbd5e1', fontWeight: 600 }}>
-              Analyzing transactions...
-            </Typography>
-          </Box>
-        </Box>
+        />
       )}
     </Box>
   )

@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etl-scheduler
+  namespace: blockchain-ml
+spec:
+  schedule: "0 * * * *"  # Run every hour
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          containers:
+          - name: scheduler
+            image: blockchain-ml-scheduler:latest
+            imagePullPolicy: Never  # Use local image for development
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: DATABASE_URL
+            - name: RPC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: blockchain-config
+                  key: RPC_URL
+            - name: ETL_SCHEDULE_HOUR
+              valueFrom:
+                configMapKeyRef:
+                  name: blockchain-config
+                  key: ETL_SCHEDULE_HOUR
+            - name: ETL_SCHEDULE_MINUTE
+              valueFrom:
+                configMapKeyRef:
+                  name: blockchain-config
+                  key: ETL_SCHEDULE_MINUTE
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            resources:
+              requests:
+                memory: "512Mi"
+                cpu: "500m"
+              limits:
+                memory: "1Gi"
+                cpu: "1000m"
+          restartPolicy: OnFailure

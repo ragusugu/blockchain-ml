@@ -17,9 +17,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Add parent directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Import main_etl for execution
 try:
-    from backend.etl.main_etl import BlockchainETL
+    from etl.main_etl import BlockchainETL
 except ImportError:
     logger.error("Failed to import main_etl. Ensure main_etl.py is in the correct location.")
     sys.exit(1)

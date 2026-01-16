@@ -1,0 +1,125 @@
+version: '3.8'
+
+services:
+  # ============ DATABASE ============
+  postgres:
+    image: postgres:15-alpine
+    container_name: blockchain-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-blockchain_db}
+      POSTGRES_USER: ${POSTGRES_USER:-blockchain_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - blockchain-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-blockchain_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============ BACKEND API ============
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: blockchain-backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}
+      RPC_URL: ${RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY}
+      FLASK_ENV: production
+      FLASK_APP: api/ai_dashboard.py
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - blockchain-network
+    volumes:
+      - ./src/backend:/app/src/backend  # Hot reload for development
+      - models_cache:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============ FRONTEND ============
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: blockchain-frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:5000
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - blockchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============ ML WORKER (Real-time) ============
+  ml_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: blockchain-ml-worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}
+      RPC_URL: ${RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY}
+      WORKER_MODE: realtime
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - blockchain-network
+    volumes:
+      - models_cache:/app/models
+    restart: unless-stopped
+
+  # ============ SCHEDULER (ETL/Batch) ============
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    container_name: blockchain-scheduler
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}
+      RPC_URL: ${RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY}
+      ETL_SCHEDULE_HOUR: ${ETL_SCHEDULE_HOUR:-0}
+      ETL_SCHEDULE_MINUTE: ${ETL_SCHEDULE_MINUTE:-0}
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - blockchain-network
+    volumes:
+      - models_cache:/app/models
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  models_cache:
+    driver: local
+
+networks:
+  blockchain-network:
+    driver: bridge

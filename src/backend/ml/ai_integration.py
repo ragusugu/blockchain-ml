@@ -4,8 +4,11 @@ Shows how to integrate fraud detection into ETL workflow
 3 different integration points
 """
 import logging
-from backend.etl.transform import transform_data
-from backend.ml.ai_fraud_detector import BlockchainFraudDetector
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from etl.transform import transform_data
+from ml.ai_fraud_detector import BlockchainFraudDetector
 
 logging.basicConfig(
     level=logging.INFO,

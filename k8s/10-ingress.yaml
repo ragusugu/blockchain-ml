@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: blockchain-ingress
+  namespace: blockchain-ml
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Optional: for HTTPS
+spec:
+  rules:
+  - host: "localhost"  # Change to your domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 3000
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 5000
+  # Optional: Add TLS
+  # tls:
+  # - hosts:
+  #   - yourdomain.com
+  #   secretName: blockchain-tls

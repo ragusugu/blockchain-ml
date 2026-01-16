@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blockchain-config
+  namespace: blockchain-ml
+data:
+  # Using free open-source RPC endpoint (no API key required)
+  RPC_URL: "https://eth.public-rpc.com"
+  # Alternatives:
+  # RPC_URL: "https://ethereum.publicnode.com"
+  # RPC_URL: "https://rpc.ankr.com/eth"
+  BATCH_SIZE: "10"
+  ETL_SCHEDULE_HOUR: "0"
+  ETL_SCHEDULE_MINUTE: "0"
+  FLASK_ENV: "production"
+  NODE_ENV: "production"
+  REACT_APP_API_URL: "http://backend:5000"

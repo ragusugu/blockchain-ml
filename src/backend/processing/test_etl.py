@@ -6,7 +6,11 @@ Validate each component works correctly
 
 import sys
 import logging
+import os
 from web3 import Web3
+
+# Add parent directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -42,7 +46,7 @@ def test_extract(block_number, w3):
     """Test 2: Extract Phase"""
     logger.info(f"{YELLOW}[TEST 2] Testing Extract Phase...{RESET}")
     try:
-        from backend.etl.extract import extract_block
+        from etl.extract import extract_block
         
         # Use a recent block (or provided block_number)
         test_block = block_number - 1 if block_number else 24237712
@@ -75,7 +79,7 @@ def test_transform(rows):
     """Test 3: Transform Phase"""
     logger.info(f"{YELLOW}[TEST 3] Testing Transform Phase...{RESET}")
     try:
-        from backend.etl.transform import transform_data, validate_data
+        from etl.transform import transform_data, validate_data
         
         if not rows:
             logger.warning(f"{YELLOW}! No rows to transform{RESET}")
