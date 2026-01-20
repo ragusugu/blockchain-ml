@@ -51,6 +51,7 @@ import DetailModal from './components/DetailModal'
 import TransactionDetailsPanel from './components/TransactionDetailsPanel'
 import Header from './components/Header'
 import ModeSelector from './components/ModeSelector'
+import StreamingStatus from './components/StreamingStatus'
 
 const MotionCard = motion(Card)
 const MotionPaper = motion(Paper)
@@ -433,6 +434,9 @@ function App() {
       <Header stats={stats} processingMode={processingMode} onModeChange={handleSelectMode} />
 
       <Container maxWidth="xl" sx={{ py: 4 }}>
+        {/* Streaming Status - Show system health including Ankr streaming */}
+        {processingMode && <StreamingStatus />}
+
         {error && (
           <Fade in={!!error}>
             <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>

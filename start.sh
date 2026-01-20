@@ -75,7 +75,7 @@ setup_environment() {
     # When starting from backend dir, use relative module path
     export FLASK_APP=api/ai_dashboard.py
     export RPC_URL="${RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/G09aLwdbZ-zyer6rwNMGu}"
-    export DATABASE_URL="${DATABASE_URL:-postgresql://user:password@localhost:5432/blockchain_db}"
+    export DATABASE_URL="${DATABASE_URL:-postgresql://blockchain_user:change-me-to-secure-password@127.0.0.1:5432/blockchain_db}"
     export POLLING_INTERVAL=10
     export MAX_WORKERS=5
     

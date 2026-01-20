@@ -12,7 +12,6 @@ import pandas as pd
 from datetime import datetime
 from web3 import Web3
 import sys
-import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from etl.extract import extract_blocks
 from etl.transform import transform_data
@@ -25,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-RPC_URL = os.getenv('RPC_URL', "https://eth-mainnet.g.alchemy.com/v2/G09aLwdbZ-zyer6rwNMGu")
+RPC_URL = os.getenv('RPC_URL', "https://rpc.drpc.org")
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '5'))
 POLLING_INTERVAL = int(os.getenv('POLLING_INTERVAL', '10'))  # Reduced from 60 to 10 seconds
 MAX_WORKERS = int(os.getenv('MAX_WORKERS', '5'))  # Parallel threads
@@ -52,33 +51,37 @@ class RealtimeBlockchainProcessor:
         """Initialize Web3 connection with retries"""
         max_retries = 5
         retry_delay = 5
-        
+
+        def _rpc_candidates():
+            urls = [u.strip() for u in RPC_URL.split(',') if u.strip()]
+            return urls or [
+                "https://rpc.drpc.org",
+                "https://cloudflare-eth.com",
+                "https://ethereum.publicnode.com",
+            ]
+
         for attempt in range(max_retries):
-            try:
-                logger.info(f"🔌 Connecting to RPC: {RPC_URL} (attempt {attempt + 1}/{max_retries})")
-                self.w3 = Web3(Web3.HTTPProvider(RPC_URL, request_kwargs={'timeout': 30}))
-                
-                if not self.w3.is_connected():
-                    logger.warning(f"Web3 connection failed on attempt {attempt + 1}")
-                    if attempt < max_retries - 1:
-                        logger.info(f"⏳ Retrying in {retry_delay}s...")
-                        time.sleep(retry_delay)
+            for url in _rpc_candidates():
+                try:
+                    logger.info(f"🔌 Connecting to RPC: {url} (attempt {attempt + 1}/{max_retries})")
+                    self.w3 = Web3(Web3.HTTPProvider(url, request_kwargs={'timeout': 30}))
+
+                    if not self.w3.is_connected():
+                        logger.warning(f"Web3 connection failed on {url}")
                         continue
-                    return False
-                
-                self.last_block = self.w3.eth.block_number
-                logger.info(f"✅ Connected to Ethereum - Current block: {self.last_block}")
-                logger.info(f"⚙️  Polling interval: {POLLING_INTERVAL}s, Workers: {MAX_WORKERS}")
-                return True
-            except Exception as e:
-                logger.error(f"Initialization failed (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    logger.info(f"⏳ Retrying in {retry_delay}s...")
-                    time.sleep(retry_delay)
-                else:
-                    logger.error(f"❌ Failed to connect after {max_retries} attempts")
-                    return False
-        
+
+                    self.last_block = self.w3.eth.block_number
+                    logger.info(f"✅ Connected to Ethereum - Current block: {self.last_block} via {url}")
+                    logger.info(f"⚙️  Polling interval: {POLLING_INTERVAL}s, Workers: {MAX_WORKERS}")
+                    return True
+                except Exception as e:
+                    logger.warning(f"RPC error for {url}: {e}")
+
+            if attempt < max_retries - 1:
+                logger.info(f"⏳ Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+
+        logger.error(f"❌ Failed to connect after {max_retries} attempts")
         return False
     
     def process_realtime(self, continuous=True, interval=None):

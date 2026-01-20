@@ -79,45 +79,57 @@ class BlockchainFraudDetector:
         
         for idx, tx in transaction_df.iterrows():
             try:
-                from_addr = tx['from_address']
-                tx_time = tx['timestamp']
-                
+                from_addr = tx.get('from_address') or tx.get('from_addr')
+                tx_time = tx.get('timestamp') or tx.get('block_timestamp')
+
+                if from_addr is None or tx_time is None:
+                    logger.warning(f"Missing address or timestamp for tx {idx}; skipping feature extraction")
+                    continue
+
                 features = {}
-                
+
                 # Feature 1: Transaction volume in last 1 hour
                 if address_history_df is not None:
-                    recent = address_history_df[
-                        (address_history_df['from_address'] == from_addr) &
-                        (address_history_df['timestamp'] > tx_time - 3600)
-                    ]
-                    features['tx_volume_1h'] = len(recent)
-                    features['avg_value_1h'] = recent['value_eth'].mean() if len(recent) > 0 else tx['value_eth']
+                    ts_col = 'timestamp' if 'timestamp' in address_history_df.columns else 'block_timestamp' if 'block_timestamp' in address_history_df.columns else None
+                    if ts_col is None:
+                        features['tx_volume_1h'] = 1
+                        features['avg_value_1h'] = tx.get('value_eth', tx.get('value', 0))
+                    else:
+                        recent = address_history_df[
+                            (address_history_df['from_address'] == from_addr) &
+                            (address_history_df[ts_col] > tx_time - 3600)
+                        ]
+                        features['tx_volume_1h'] = len(recent)
+                        features['avg_value_1h'] = recent['value_eth'].mean() if len(recent) > 0 else tx.get('value_eth', tx.get('value', 0))
                 else:
                     features['tx_volume_1h'] = 1
-                    features['avg_value_1h'] = tx['value_eth']
-                
+                    features['avg_value_1h'] = tx.get('value_eth', tx.get('value', 0))
+
                 # Feature 2: Gas price Z-score
                 gas_mean = 50  # Default gwei
                 gas_std = 20
-                features['gas_price_zscore'] = (tx['gas_price_gwei'] - gas_mean) / gas_std
-                
+                gas_price = tx.get('gas_price_gwei', tx.get('gas_price', 0))
+                features['gas_price_zscore'] = (gas_price - gas_mean) / gas_std
+
                 # Feature 3: Transaction value Z-score
                 value_mean = 1.0  # Default ETH
                 value_std = 5.0
-                features['value_zscore'] = (tx['value_eth'] - value_mean) / value_std
-                
+                value_eth = tx.get('value_eth', tx.get('value', 0))
+                features['value_zscore'] = (value_eth - value_mean) / value_std
+
                 # Feature 4: Address age (simplified)
                 if address_history_df is not None and len(address_history_df) > 0:
                     addr_history = address_history_df[address_history_df['from_address'] == from_addr]
+                    ts_col = 'timestamp' if 'timestamp' in addr_history.columns else 'block_timestamp' if 'block_timestamp' in addr_history.columns else None
                     if len(addr_history) > 0:
-                        first_tx_time = addr_history['timestamp'].min()
+                        first_tx_time = addr_history[ts_col].min() if ts_col else tx_time
                         features['address_age_days'] = (datetime.fromtimestamp(tx_time) - datetime.fromtimestamp(first_tx_time)).days
                     else:
                         features['address_age_days'] = 0
                 else:
                     # Default: assume new address if no history available (deterministic, not random)
                     features['address_age_days'] = 0
-                
+
                 # Feature 5: Unique addresses
                 if address_history_df is not None:
                     unique_addrs = address_history_df[
@@ -126,18 +138,18 @@ class BlockchainFraudDetector:
                 else:
                     unique_addrs = 1
                 features['unique_addresses'] = unique_addrs
-                
+
                 # Feature 6: Time of day
                 features['time_of_day'] = datetime.fromtimestamp(tx_time).hour
-                
+
                 # Feature 7: Value deviation
-                features['value_deviation'] = abs(tx['value_eth'] - value_mean) / value_std
-                
+                features['value_deviation'] = abs(value_eth - value_mean) / value_std
+
                 # Feature 8: Gas deviation
-                features['gas_deviation'] = abs(tx['gas_price_gwei'] - gas_mean) / gas_std
-                
+                features['gas_deviation'] = abs(gas_price - gas_mean) / gas_std
+
                 features_list.append(features)
-            
+
             except Exception as e:
                 logger.warning(f"Error extracting features for tx {idx}: {e}")
                 continue

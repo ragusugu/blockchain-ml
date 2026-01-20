@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 # IMPORTANT: Set DATABASE_URL and RPC_URL environment variables for production
-DATABASE_URL = os.getenv('DATABASE_URL', '')
-RPC_URL = os.getenv('RPC_URL', '')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://blockchain_user:change-me-to-secure-password@postgres:5432/blockchain_db')
+RPC_URL = os.getenv('RPC_URL', 'https://rpc.drpc.org')
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '10'))  # Process X blocks per run
 
 
@@ -55,12 +55,32 @@ class BlockchainETL:
             return False
         
         try:
-            # Web3 connection
-            self.w3 = Web3(Web3.HTTPProvider(RPC_URL))
-            if not self.w3.is_connected():
+            # Web3 connection with fallback list
+            def _rpc_candidates():
+                env = RPC_URL
+                urls = [u.strip() for u in env.split(',') if u.strip()]
+                return urls or [
+                    "https://rpc.drpc.org",
+                    "https://cloudflare-eth.com",
+                    "https://ethereum.publicnode.com",
+                ]
+
+            self.w3 = None
+            for url in _rpc_candidates():
+                try:
+                    logger.info(f"Connecting to RPC: {url}")
+                    candidate = Web3(Web3.HTTPProvider(url, request_kwargs={'timeout': 20}))
+                    if candidate.is_connected():
+                        self.w3 = candidate
+                        logger.info(f"Connected to Web3 - Latest block: {self.w3.eth.block_number} via {url}")
+                        break
+                    logger.warning(f"RPC not reachable: {url}")
+                except Exception as e:
+                    logger.warning(f"RPC error for {url}: {e}")
+
+            if self.w3 is None:
                 logger.error("Web3 connection failed")
                 return False
-            logger.info(f"Connected to Web3 - Latest block: {self.w3.eth.block_number}")
         except Exception as e:
             logger.error(f"Web3 initialization failed: {e}")
             return False

@@ -468,6 +468,64 @@ load_docker_images_to_kind() {
 ################################################################################
 # Verification & Health Checks
 ################################################################################
+# Update .env files with K8s Postgres credentials
+################################################################################
+
+update_env_files_for_k8s() {
+    log "Updating .env files with K8s Postgres credentials..."
+    separator
+    
+    local K8S_DB_PASSWORD="change-me-to-secure-password"
+    local K8S_DB_USER="blockchain_user"
+    local K8S_DB_NAME="blockchain_db"
+    local K8S_RPC_URL="https://ethereum.publicnode.com"
+    
+    # Update root .env
+    if [ -f "$PROJECT_ROOT/.env" ]; then
+        info "Updating $PROJECT_ROOT/.env..."
+        cat > "$PROJECT_ROOT/.env" << EOF
+# PostgreSQL Database Credentials (K8s Postgres)
+POSTGRES_DB=${K8S_DB_NAME}
+POSTGRES_USER=${K8S_DB_USER}
+POSTGRES_PASSWORD=${K8S_DB_PASSWORD}
+
+# Full DATABASE_URL (K8s Postgres via port-forward to localhost:5432)
+# Run: kubectl port-forward -n ${NAMESPACE} svc/postgres 5432:5432
+DATABASE_URL=postgresql://${K8S_DB_USER}:${K8S_DB_PASSWORD}@127.0.0.1:5432/${K8S_DB_NAME}
+
+# RPC URL for Ethereum
+RPC_URL=${K8S_RPC_URL}
+EOF
+        success "Updated $PROJECT_ROOT/.env"
+    fi
+    
+    # Update config/.env
+    if [ -d "$PROJECT_ROOT/config" ]; then
+        info "Updating $PROJECT_ROOT/config/.env..."
+        cat > "$PROJECT_ROOT/config/.env" << EOF
+# PostgreSQL Database Credentials (K8s Postgres)
+POSTGRES_DB=${K8S_DB_NAME}
+POSTGRES_USER=${K8S_DB_USER}
+POSTGRES_PASSWORD=${K8S_DB_PASSWORD}
+
+# Full DATABASE_URL (K8s Postgres via port-forward to localhost:5432)
+# Run: kubectl port-forward -n ${NAMESPACE} svc/postgres 5432:5432
+DATABASE_URL=postgresql://${K8S_DB_USER}:${K8S_DB_PASSWORD}@127.0.0.1:5432/${K8S_DB_NAME}
+
+# RPC URL for Ethereum
+RPC_URL=${K8S_RPC_URL}
+EOF
+        success "Updated $PROJECT_ROOT/config/.env"
+    fi
+    
+    success ".env files updated with K8s Postgres credentials"
+    info "Use port-forward to connect: kubectl port-forward -n ${NAMESPACE} svc/postgres 5432:5432"
+    echo ""
+}
+
+################################################################################
+# Verification & Health Checks
+################################################################################
 
 verify_deployment() {
     log "Verifying deployment..."
@@ -661,6 +719,7 @@ main() {
         setup_kubernetes_cluster
         load_docker_images_to_kind
         deploy_kubernetes_resources
+        update_env_files_for_k8s
     fi
     
     # Verify deployment

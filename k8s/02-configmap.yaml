@@ -5,10 +5,10 @@ metadata:
   namespace: blockchain-ml
 data:
   # Using free open-source RPC endpoint (no API key required)
-  RPC_URL: "https://eth.public-rpc.com"
+  RPC_URL: "https://ethereum.publicnode.com"
   # Alternatives:
-  # RPC_URL: "https://ethereum.publicnode.com"
-  # RPC_URL: "https://rpc.ankr.com/eth"
+  # RPC_URL: "https://rpc.drpc.org"
+  # RPC_URL: "https://cloudflare-eth.com"
   BATCH_SIZE: "10"
   ETL_SCHEDULE_HOUR: "0"
   ETL_SCHEDULE_MINUTE: "0"

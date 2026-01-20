@@ -17,7 +17,7 @@ echo ""
 if [ ! -f config/.env ]; then
     echo "📝 Creating .env file..."
     cat > config/.env << 'EOF'
-DATABASE_URL=postgresql://user:password@localhost:5432/blockchain_db
+DATABASE_URL=postgresql://blockchain_user:change-me-to-secure-password@127.0.0.1:5432/blockchain_db
 RPC_URL=https://eth-mainnet.g.alchemy.com/v2/G09aLwdbZ-zyer6rwNMGu
 BATCH_SIZE=10
 ETL_SCHEDULE_HOUR=0

@@ -26,6 +26,13 @@ from etl.transform import transform_data
 from ml.ai_integration import AIEnrichedETL
 from utils.disk_cleanup import DiskCleanupManager, monitor_disk_health
 
+# Try to import Ankr streaming manager for stats
+try:
+    from etl.streaming_manager import get_streaming_stats
+    HAS_STREAMING = True
+except ImportError:
+    HAS_STREAMING = False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -56,8 +63,8 @@ CORS(app)
 
 # Configuration
 # IMPORTANT: Set RPC_URL and DATABASE_URL environment variables for production
-RPC_URL = os.getenv('RPC_URL', '')
-DATABASE_URL = os.getenv('DATABASE_URL', '')
+RPC_URL = os.getenv('RPC_URL', 'https://rpc.drpc.org')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://blockchain_user:change-me-to-secure-password@postgres:5432/blockchain_db')
 MODEL_ENABLED = os.getenv('MODEL_ENABLED', 'true').lower() == 'true'
 MAX_BLOCKS_PER_REQUEST = int(os.getenv('MAX_BLOCKS_PER_REQUEST', '1'))
 
@@ -101,8 +108,30 @@ def initialize():
 
     try:
         logger.info("🔄 Initializing Web3 and AI models...")
-        w3 = Web3(Web3.HTTPProvider(RPC_URL))
-        if not w3.is_connected():
+
+        def _rpc_candidates():
+            env = RPC_URL
+            urls = [u.strip() for u in env.split(',') if u.strip()]
+            return urls or [
+                "https://rpc.drpc.org",
+                "https://cloudflare-eth.com",
+                "https://ethereum.publicnode.com",
+            ]
+
+        w3 = None
+        for url in _rpc_candidates():
+            try:
+                logger.info(f"Connecting to RPC: {url}")
+                candidate = Web3(Web3.HTTPProvider(url, request_kwargs={'timeout': 20}))
+                if candidate.is_connected():
+                    w3 = candidate
+                    logger.info(f"✅ Web3 connected via {url}")
+                    break
+                logger.warning(f"RPC not reachable: {url}")
+            except Exception as e:
+                logger.warning(f"RPC error for {url}: {e}")
+
+        if w3 is None:
             logger.error("Web3 connection failed")
             return False
 
@@ -333,15 +362,22 @@ def get_cached_transactions(start_block, end_block, limit=100):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
             SELECT 
-                tx_hash as hash,
                 block_number,
-                from_addr as from_address,
-                to_addr as to_address,
-                value as value_eth,
+                block_hash,
+                block_timestamp AS timestamp,
+                tx_hash AS transaction_hash,
+                tx_index AS transaction_index,
+                from_addr AS from_address,
+                to_addr AS to_address,
+                value AS value_eth,
+                gas AS gas,
+                gas_price AS gas_price_gwei,
                 gas_used,
+                cumulative_gas_used,
                 status,
-                block_timestamp as timestamp
-            FROM transactions
+                contract_addr AS contract_address,
+                effective_gas_price
+            FROM transaction_receipts
             WHERE block_number BETWEEN %s AND %s
             ORDER BY block_number DESC, tx_index DESC
             LIMIT %s
@@ -880,6 +916,123 @@ def get_model_info():
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# STREAMING ENDPOINTS (NEW - Ankr Integration)
+# ============================================================
+
+@app.route('/api/streaming/stats', methods=['GET'])
+def get_streaming_stats_endpoint():
+    """Get Ankr streaming service statistics"""
+    if not HAS_STREAMING:
+        return jsonify({
+            'status': 'streaming_not_available',
+            'message': 'Ankr streaming service not loaded',
+            'streaming_enabled': False
+        }), 200
+    
+    try:
+        stats = get_streaming_stats()
+        return jsonify({
+            'status': 'success',
+            'streaming_enabled': True,
+            'stats': stats,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.warning(f"Could not get streaming stats: {e}")
+        return jsonify({
+            'status': 'streaming_unavailable',
+            'message': str(e),
+            'streaming_enabled': False
+        }), 200
+
+
+@app.route('/api/streaming/health', methods=['GET'])
+def get_streaming_health():
+    """Check streaming service health"""
+    if not HAS_STREAMING:
+        return jsonify({
+            'streaming_service': 'not_available',
+            'status': 'disabled',
+            'message': 'Streaming service not enabled'
+        }), 200
+    
+    try:
+        stats = get_streaming_stats()
+        is_running = stats.get('running', False)
+        
+        return jsonify({
+            'streaming_service': 'available',
+            'status': 'running' if is_running else 'stopped',
+            'blocks_streamed': stats.get('blocks_streamed', 0),
+            'transactions_streamed': stats.get('transactions_streamed', 0),
+            'errors': stats.get('errors', 0),
+            'last_update': stats.get('last_update'),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.warning(f"Streaming health check error: {e}")
+        return jsonify({
+            'streaming_service': 'error',
+            'status': 'error',
+            'message': str(e)
+        }), 200
+
+
+@app.route('/api/system/status', methods=['GET'])
+def get_system_status():
+    """Get overall system status (batch + streaming)"""
+    try:
+        # Batch processing status
+        batch_status = {
+            'service': 'batch_etl',
+            'w3_connected': w3 is not None and w3.is_connected(),
+            'latest_block': w3.eth.block_number if (w3 and w3.is_connected()) else None,
+            'gas_price': float(w3.from_wei(w3.eth.gas_price, 'gwei')) if (w3 and w3.is_connected()) else None,
+            'ai_loaded': etl_ai is not None,
+            'model_enabled': MODEL_ENABLED
+        }
+        
+        # Streaming status
+        streaming_status = {
+            'service': 'ankr_streaming',
+            'available': HAS_STREAMING
+        }
+        
+        if HAS_STREAMING:
+            try:
+                stats = get_streaming_stats()
+                streaming_status.update({
+                    'running': stats.get('running', False),
+                    'blocks_streamed': stats.get('blocks_streamed', 0),
+                    'transactions_streamed': stats.get('transactions_streamed', 0),
+                    'errors': stats.get('errors', 0),
+                    'last_update': stats.get('last_update')
+                })
+            except Exception as e:
+                streaming_status['error'] = str(e)
+        
+        return jsonify({
+            'status': 'ok',
+            'services': {
+                'batch': batch_status,
+                'streaming': streaming_status
+            },
+            'data_sources': {
+                'batch_etl': 'PostgreSQL (scheduled)',
+                'ankr_streaming': 'Ankr RPC (real-time)' if HAS_STREAMING else 'Not available'
+            },
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"System status error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 
 # ============================================================

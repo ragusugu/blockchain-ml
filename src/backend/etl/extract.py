@@ -48,6 +48,7 @@ def extract_block(block_number, w3):
                     "block_number": block.get("number"),
                     "block_hash": block.get("hash").hex() if block.get("hash") else None,
                     "timestamp": block.get("timestamp"),
+                    "tx_hash": tx.get("hash").hex() if tx.get("hash") else None,
                     "transaction_hash": tx.get("hash").hex() if tx.get("hash") else None,
                     "transaction_index": tx.get("transactionIndex"),
                     "from_address": tx.get("from"),

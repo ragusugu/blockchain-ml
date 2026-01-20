@@ -2,13 +2,15 @@ version: '3.8'
 
 services:
   # ============ DATABASE ============
+  # NOTE: For production, use the K8s Postgres instead of this container
+  # This is kept for local Docker Compose development only
   postgres:
     image: postgres:15-alpine
     container_name: blockchain-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-blockchain_db}
       POSTGRES_USER: ${POSTGRES_USER:-blockchain_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-to-secure-password}
     ports:
       - "5432:5432"
     volumes:
@@ -29,8 +31,8 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: blockchain-backend
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}
-      RPC_URL: ${RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-change-me-to-secure-password}@postgres:5432/${POSTGRES_DB:-blockchain_db}
+      RPC_URL: ${RPC_URL:-https://ethereum.publicnode.com}
       FLASK_ENV: production
       FLASK_APP: api/ai_dashboard.py
       PYTHONUNBUFFERED: "1"
@@ -80,8 +82,8 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: blockchain-ml-worker
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}
-      RPC_URL: ${RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-change-me-to-secure-password}@postgres:5432/${POSTGRES_DB:-blockchain_db}
+      RPC_URL: ${RPC_URL:-https://ethereum.publicnode.com}
       WORKER_MODE: realtime
       PYTHONUNBUFFERED: "1"
     depends_on:
@@ -100,8 +102,8 @@ services:
       dockerfile: docker/Dockerfile.scheduler
     container_name: blockchain-scheduler
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/${POSTGRES_DB:-blockchain_db}
-      RPC_URL: ${RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-change-me-to-secure-password}@postgres:5432/${POSTGRES_DB:-blockchain_db}
+      RPC_URL: ${RPC_URL:-https://ethereum.publicnode.com}
       ETL_SCHEDULE_HOUR: ${ETL_SCHEDULE_HOUR:-0}
       ETL_SCHEDULE_MINUTE: ${ETL_SCHEDULE_MINUTE:-0}
       PYTHONUNBUFFERED: "1"
@@ -113,6 +115,33 @@ services:
     volumes:
       - models_cache:/app/models
     restart: unless-stopped
+
+  # ============ ANKR STREAMING SERVICE (Optional/Independent) ============
+  # Separate service for real-time Ankr streaming
+  # Runs independently without affecting batch processing
+  ankr-streamer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: blockchain-ankr-streamer
+    command: python -c "from etl.stream_service import AnkrStreamingService; service = AnkrStreamingService(); service.run()"
+    environment:
+      ANKR_RPC_URL: ${ANKR_RPC_URL:-https://rpc.ankr.com/eth}
+      ANKR_POLLING_INTERVAL: ${ANKR_POLLING_INTERVAL:-12}
+      ANKR_BATCH_SIZE: ${ANKR_BATCH_SIZE:-10}
+      STREAMING_ENABLED: ${STREAMING_ENABLED:-true}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blockchain_user}:${POSTGRES_PASSWORD:-change-me-to-secure-password}@postgres:5432/${POSTGRES_DB:-blockchain_db}
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - blockchain-network
+    volumes:
+      - models_cache:/app/models
+    restart: unless-stopped
+    profiles:
+      - streaming  # Optional service - activate with: docker-compose --profile streaming up
 
 volumes:
   postgres_data:
