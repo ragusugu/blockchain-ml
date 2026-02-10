@@ -34,7 +34,7 @@ class BlockchainFraudDetector:
     - Value transfer anomalies
     """
     
-    def __init__(self, model_path="fraud_model.pkl"):
+    def __init__(self, model_path: str = "fraud_model.pkl"):
         self.model = None
         self.scaler = None
         self.model_path = model_path
@@ -74,7 +74,9 @@ class BlockchainFraudDetector:
         Returns:
             Feature matrix for model input
         """
-        # Vectorized feature extraction for better performance
+        # Feature extraction per transaction
+        # Note: Using iterrows for flexibility with column name variations.
+        # For large datasets (10k+ rows), consider vectorizing if column names are standardized.
         features_list = []
         
         for idx, tx in transaction_df.iterrows():
@@ -84,6 +86,13 @@ class BlockchainFraudDetector:
 
                 if from_addr is None or tx_time is None:
                     logger.warning(f"Missing address or timestamp for tx {idx}; skipping feature extraction")
+                    continue
+                
+                # Validate timestamp is numeric
+                try:
+                    tx_time = float(tx_time)
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid timestamp format for tx {idx}: {tx_time}")
                     continue
 
                 features = {}
@@ -106,16 +115,18 @@ class BlockchainFraudDetector:
                     features['avg_value_1h'] = tx.get('value_eth', tx.get('value', 0))
 
                 # Feature 2: Gas price Z-score
-                gas_mean = 50  # Default gwei
+                # Note: These are baseline stats. For production, calculate from recent blocks.
+                gas_mean = 50  # Baseline: 50 gwei (update based on network conditions)
                 gas_std = 20
                 gas_price = tx.get('gas_price_gwei', tx.get('gas_price', 0))
-                features['gas_price_zscore'] = (gas_price - gas_mean) / gas_std
+                features['gas_price_zscore'] = (gas_price - gas_mean) / max(gas_std, 1e-6)  # Avoid div by zero
 
                 # Feature 3: Transaction value Z-score
-                value_mean = 1.0  # Default ETH
+                # Note: These are baseline stats. For production, calculate from recent blocks.
+                value_mean = 1.0  # Baseline: 1 ETH
                 value_std = 5.0
                 value_eth = tx.get('value_eth', tx.get('value', 0))
-                features['value_zscore'] = (value_eth - value_mean) / value_std
+                features['value_zscore'] = (value_eth - value_mean) / max(value_std, 1e-6)  # Avoid div by zero
 
                 # Feature 4: Address age (simplified)
                 if address_history_df is not None and len(address_history_df) > 0:
@@ -143,10 +154,10 @@ class BlockchainFraudDetector:
                 features['time_of_day'] = datetime.fromtimestamp(tx_time).hour
 
                 # Feature 7: Value deviation
-                features['value_deviation'] = abs(value_eth - value_mean) / value_std
+                features['value_deviation'] = abs(value_eth - value_mean) / max(value_std, 1e-6)
 
                 # Feature 8: Gas deviation
-                features['gas_deviation'] = abs(gas_price - gas_mean) / gas_std
+                features['gas_deviation'] = abs(gas_price - gas_mean) / max(gas_std, 1e-6)
 
                 features_list.append(features)
 
@@ -184,9 +195,14 @@ class BlockchainFraudDetector:
                 (X['tx_volume_1h'] > 100)
             ).astype(int)
             
-            # Add some random anomalies
-            anomaly_indices = np.random.choice(len(X), size=max(1, len(X)//20), replace=False)
-            y[anomaly_indices] = 1
+            # Add deterministic anomalies based on feature combinations (reproducible)
+            # Flag transactions with extreme deviations
+            anomaly_mask = (
+                (X['value_deviation'] > 3) | 
+                (X['gas_deviation'] > 3) |
+                ((X['tx_volume_1h'] > 50) & (X['address_age_days'] < 1))
+            )
+            y = (y | anomaly_mask).astype(int)
         else:
             y = labels_df
         

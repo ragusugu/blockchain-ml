@@ -28,6 +28,10 @@ build/
 dist/
 *.egg-info/
 
+# Frontend dependencies/build cache
+node_modules/
+.vite/
+
 # Model files (optional - uncomment if you want to ignore)
 # *.pkl
 # fraud_model.pkl

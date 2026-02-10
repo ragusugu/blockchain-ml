@@ -14,7 +14,7 @@ from flask_cors import CORS
 import pandas as pd
 import numpy as np
 from web3 import Web3
-from threading import Thread
+from threading import Thread, Lock
 import uuid
 
 # Add src to path for imports
@@ -26,9 +26,14 @@ from etl.transform import transform_data
 from ml.ai_integration import AIEnrichedETL
 from utils.disk_cleanup import DiskCleanupManager, monitor_disk_health
 
-# Try to import Ankr streaming manager for stats
+# Try to import Ankr streaming manager for stats and control
 try:
-    from etl.streaming_manager import get_streaming_stats
+    from etl.streaming_manager import (
+        get_streaming_stats,
+        initialize_streaming,
+        start_streaming_service,
+        stop_streaming_service,
+    )
     HAS_STREAMING = True
 except ImportError:
     HAS_STREAMING = False
@@ -67,6 +72,8 @@ RPC_URL = os.getenv('RPC_URL', 'https://rpc.drpc.org')
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://blockchain_user:change-me-to-secure-password@postgres:5432/blockchain_db')
 MODEL_ENABLED = os.getenv('MODEL_ENABLED', 'true').lower() == 'true'
 MAX_BLOCKS_PER_REQUEST = int(os.getenv('MAX_BLOCKS_PER_REQUEST', '1'))
+TRAIN_MODEL_ON_BATCH = os.getenv('TRAIN_MODEL_ON_BATCH', 'false').lower() == 'true'
+STORE_BATCH_RESULTS = os.getenv('STORE_BATCH_RESULTS', 'true').lower() == 'true'
 
 # Global state
 w3 = None
@@ -74,6 +81,9 @@ etl_ai = None
 current_data = None
 _initialized = False
 db_connection = None
+active_mode = None
+mode_lock = Lock()
+streaming_initialized = False
 
 # Try to import psycopg2 for PostgreSQL access
 try:
@@ -165,11 +175,57 @@ def ensure_initialized():
         initialize()
 
 
+def enforce_mode(target_mode):
+    """Ensure batch and streaming run exclusively based on selected mode"""
+    global active_mode, streaming_initialized
+
+    if target_mode not in ('scheduled', 'realtime'):
+        return {'active_mode': active_mode, 'actions': ['noop_invalid_mode']}
+
+    actions = []
+
+    with mode_lock:
+        if target_mode == active_mode:
+            return {'active_mode': active_mode, 'actions': ['noop_same_mode']}
+
+        if target_mode == 'scheduled':
+            # Pause streaming when running batch
+            if HAS_STREAMING:
+                try:
+                    stop_streaming_service()
+                    actions.append('streaming_stopped')
+                except Exception as e:
+                    logger.warning(f"Could not stop streaming: {e}")
+            actions.append('batch_active')
+
+        elif target_mode == 'realtime':
+            if HAS_STREAMING:
+                try:
+                    if not streaming_initialized:
+                        streaming_initialized = initialize_streaming()
+                    if streaming_initialized:
+                        started = start_streaming_service(background=True)
+                        if started:
+                            actions.append('streaming_started')
+                    else:
+                        actions.append('streaming_init_failed')
+                except Exception as e:
+                    logger.warning(f"Could not start streaming: {e}")
+            actions.append('realtime_active')
+
+        active_mode = target_mode
+        return {'active_mode': active_mode, 'actions': actions}
+
+
 def _process_transactions_core(mode, option, block_count):
     """Core processing logic extracted for async job support. Returns dict."""
     request_start = time.time()
+
+    # Keep batch and streaming mutually exclusive
+    mode_state = enforce_mode(mode)
+
     if not w3.is_connected():
-        return {'error': 'Web3 connection failed', 'details': 'RPC not connected'}
+        return {'error': 'Web3 connection failed', 'details': 'RPC not connected', 'mode_state': mode_state}
 
     latest_block = w3.eth.block_number
     start_block = max(1, latest_block - block_count + 1)
@@ -203,12 +259,17 @@ def _process_transactions_core(mode, option, block_count):
             'transactions': [],
             'stats': {},
             'data_source': data_source,
+            'mode_state': mode_state,
             'performance': {'extract_time': f"{extract_time:.3f}s", 'transform_time': "0.000s", 'total_time': "0.000s", 'tx_per_second': "0"}
         }
 
     transform_start = time.time()
     clean_data = transform_data(raw_data)
     transform_time = time.time() - transform_start
+
+    # Persist to PostgreSQL in background for scheduled mode
+    if mode == 'scheduled' and STORE_BATCH_RESULTS and HAS_POSTGRES and clean_data is not None and not clean_data.empty:
+        Thread(target=persist_transactions, args=(clean_data.copy(),), daemon=True).start()
     if clean_data is None or clean_data.empty:
         return {
             'mode': mode,
@@ -218,6 +279,7 @@ def _process_transactions_core(mode, option, block_count):
             'transactions': [],
             'stats': {},
             'data_source': data_source,
+            'mode_state': mode_state,
             'performance': {'extract_time': f"{extract_time:.3f}s", 'transform_time': f"{transform_time:.3f}s", 'total_time': f"{(time.time()-request_start):.3f}s", 'tx_per_second': "0"}
         }
 
@@ -238,6 +300,19 @@ def _process_transactions_core(mode, option, block_count):
         results = clean_data
 
     transactions_raw = results.to_dict('records') if not results.empty else []
+
+    # Optional background model training for scheduled batches only
+    if mode == 'scheduled' and TRAIN_MODEL_ON_BATCH and MODEL_ENABLED and etl_ai is not None:
+        def _train_async(df_snapshot):
+            try:
+                logger.info("🧠 Training model on batch data (async)")
+                etl_ai.detector.train_model(df_snapshot)
+                logger.info("✅ Model training complete for batch")
+            except Exception as e:
+                logger.warning(f"Model training skipped due to error: {e}")
+
+        # Copy to avoid mutation during training
+        Thread(target=_train_async, args=(clean_data.copy(),), daemon=True).start()
 
     def normalize_tx(tx):
         return {
@@ -281,6 +356,7 @@ def _process_transactions_core(mode, option, block_count):
         },
         'processing_info': processing_info,
         'data_source': data_source,
+        'mode_state': mode_state,
         'timestamp': datetime.now().isoformat(),
         'performance': {
             'extract_time': f"{extract_time:.3f}s",
@@ -350,6 +426,51 @@ def release_postgres_connection(conn):
     global db_pool
     if db_pool and conn:
         db_pool.putconn(conn)
+
+
+def persist_transactions(df):
+    """Persist transformed transactions to PostgreSQL (idempotent on tx_hash)."""
+    if not HAS_POSTGRES or not STORE_BATCH_RESULTS:
+        return False
+    if df is None or df.empty:
+        return False
+
+    conn = get_postgres_connection()
+    if not conn:
+        return False
+
+    cols = [
+        'block_number', 'block_hash', 'block_timestamp', 'tx_hash', 'tx_index',
+        'from_addr', 'to_addr', 'value', 'gas', 'gas_price', 'gas_used',
+        'cumulative_gas_used', 'status', 'contract_addr', 'effective_gas_price'
+    ]
+
+    try:
+        records = []
+        for _, row in df.iterrows():
+            rec = {c: row.get(c) for c in cols}
+            records.append(rec)
+
+        if not records:
+            return False
+
+        placeholders = ','.join([f"%({c})s" for c in cols])
+        query = f"""
+            INSERT INTO transaction_receipts ({', '.join(cols)}, processed_at, created_at)
+            VALUES ({placeholders}, NOW(), NOW())
+            ON CONFLICT (tx_hash) DO NOTHING
+        """
+
+        with conn.cursor() as cur:
+            cur.executemany(query, records)
+            conn.commit()
+            logger.info(f"💾 Stored {cur.rowcount} transaction(s) to PostgreSQL (deduped)")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not store transactions: {e}")
+        return False
+    finally:
+        release_postgres_connection(conn)
 
 
 def get_cached_transactions(start_block, end_block, limit=100):
@@ -673,12 +794,16 @@ def get_transactions():
     requested_blocks = int(data.get('block_count', 5))
     block_count = max(1, min(requested_blocks, MAX_BLOCKS_PER_REQUEST))
 
+    # Enforce mutual exclusivity between batch and streaming
+    mode_state = enforce_mode(mode)
+
     try:
         if not w3.is_connected():
             logger.error("❌ Web3 not connected")
             return jsonify({
                 'error': 'Web3 connection failed',
-                'details': 'Unable to connect to Ethereum RPC. Check RPC_URL environment variable.'
+                'details': 'Unable to connect to Ethereum RPC. Check RPC_URL environment variable.',
+                'mode_state': mode_state
             }), 500
 
         # Get current block
@@ -713,12 +838,17 @@ def get_transactions():
                 'option': option,
                 'status': 'No transactions found',
                 'transactions': [],
-                'stats': {}
+                'stats': {},
+                'mode_state': mode_state
             })
 
         transform_start = time.time()
         clean_data = transform_data(raw_data)
         transform_time = time.time() - transform_start
+
+        # Persist scheduled batches to PostgreSQL without blocking UI
+        if mode == 'scheduled' and STORE_BATCH_RESULTS and HAS_POSTGRES and clean_data is not None and not clean_data.empty:
+            Thread(target=persist_transactions, args=(clean_data.copy(),), daemon=True).start()
 
         if clean_data is None or clean_data.empty:
             return jsonify({
@@ -726,7 +856,8 @@ def get_transactions():
                 'option': option,
                 'status': 'No transactions found',
                 'transactions': [],
-                'stats': {}
+                'stats': {},
+                'mode_state': mode_state
             })
 
         # Process based on MODE and OPTION
@@ -736,6 +867,19 @@ def get_transactions():
                 enriched = etl_ai.enrich_with_fraud_scores(raw_data)
                 results = enriched
                 processing_info = "ML scoring active"
+
+                # Kick off optional background training so streaming path stays untouched
+                if TRAIN_MODEL_ON_BATCH:
+                    def _train_async(df_snapshot):
+                        try:
+                            logger.info("🧠 Training model on batch data (async)")
+                            etl_ai.detector.train_model(df_snapshot)
+                            logger.info("✅ Model training complete for batch")
+                        except Exception as e:
+                            logger.warning(f"Model training skipped due to error: {e}")
+
+                    Thread(target=_train_async, args=(clean_data.copy(),), daemon=True).start()
+
             else:
                 logger.info("⚡ REAL-TIME MODE: ML scoring enabled")
                 enriched = etl_ai.enrich_with_fraud_scores(raw_data)
@@ -817,6 +961,7 @@ def get_transactions():
             'stats': stats,
             'processing_info': processing_info,
             'data_source': data_source,  # Show where data came from
+            'mode_state': mode_state,
             'timestamp': datetime.now().isoformat(),
             'performance': {
                 'extract_time': f"{extract_time:.3f}s",

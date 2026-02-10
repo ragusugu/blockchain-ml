@@ -210,8 +210,8 @@ function App() {
       setError('Please select an option first')
       return
     }
-
-    setLoading(true)
+    const isInitialLoad = transactions.length === 0
+    setLoading(isInitialLoad)
     setError(null)
     try {
       // Try async job first to avoid Cloudflare 524
@@ -313,9 +313,9 @@ function App() {
       const errorDetails = err.response?.data?.details || ''
       setError(`Failed to fetch transactions: ${errorMsg}${errorDetails ? ' - ' + errorDetails : ''}`)
     } finally {
-      setLoading(false)
+      if (isInitialLoad) setLoading(false)
     }
-  }, [selectedOption, processingMode, blockCount])
+  }, [selectedOption, processingMode, blockCount, transactions.length])
 
   const toggleModel = async (enabled) => {
     setModelEnabled(enabled)
