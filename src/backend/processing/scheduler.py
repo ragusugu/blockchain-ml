@@ -10,15 +10,12 @@ from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from logging_config import setup_logging
+from config import cfg
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Configure logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 # Import main_etl for execution
 try:
@@ -62,8 +59,8 @@ def main():
     scheduler = BlockingScheduler()
     
     # Get schedule from environment or use defaults
-    schedule_hour = os.getenv('ETL_SCHEDULE_HOUR', '0')  # Default: midnight
-    schedule_minute = os.getenv('ETL_SCHEDULE_MINUTE', '0')
+    schedule_hour = cfg.ETL_SCHEDULE_HOUR
+    schedule_minute = cfg.ETL_SCHEDULE_MINUTE
     
     # Parse schedule
     try:

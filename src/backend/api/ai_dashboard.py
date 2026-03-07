@@ -17,14 +17,13 @@ from web3 import Web3
 from threading import Thread, Lock
 import uuid
 
-# Add src to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from etl.extract import extract_blocks
 from etl.transform import transform_data
 from ml.ai_integration import AIEnrichedETL
 from utils.disk_cleanup import DiskCleanupManager, monitor_disk_health
+from config import cfg
+from connections import get_web3
+from logging_config import setup_logging
 
 # Try to import Ankr streaming manager for stats and control
 try:
@@ -38,7 +37,7 @@ try:
 except ImportError:
     HAS_STREAMING = False
 
-logging.basicConfig(level=logging.INFO)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Get the directory path
@@ -81,12 +80,12 @@ CORS(app)
 
 # Configuration
 # IMPORTANT: Set RPC_URL and DATABASE_URL environment variables for production
-RPC_URL = os.getenv('RPC_URL', 'https://rpc.drpc.org')
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://blockchain_user:change-me-to-secure-password@postgres:5432/blockchain_db')
-MODEL_ENABLED = os.getenv('MODEL_ENABLED', 'true').lower() == 'true'
-MAX_BLOCKS_PER_REQUEST = int(os.getenv('MAX_BLOCKS_PER_REQUEST', '1'))
-TRAIN_MODEL_ON_BATCH = os.getenv('TRAIN_MODEL_ON_BATCH', 'false').lower() == 'true'
-STORE_BATCH_RESULTS = os.getenv('STORE_BATCH_RESULTS', 'true').lower() == 'true'
+RPC_URL = cfg.RPC_URL
+DATABASE_URL = cfg.DATABASE_URL
+MODEL_ENABLED = cfg.MODEL_ENABLED
+MAX_BLOCKS_PER_REQUEST = cfg.MAX_BLOCKS_PER_REQUEST
+TRAIN_MODEL_ON_BATCH = cfg.TRAIN_MODEL_ON_BATCH
+STORE_BATCH_RESULTS = cfg.STORE_BATCH_RESULTS
 
 # Global state
 w3 = None
@@ -132,28 +131,7 @@ def initialize():
     try:
         logger.info("🔄 Initializing Web3 and AI models...")
 
-        def _rpc_candidates():
-            env = RPC_URL
-            urls = [u.strip() for u in env.split(',') if u.strip()]
-            return urls or [
-                "https://rpc.drpc.org",
-                "https://cloudflare-eth.com",
-                "https://ethereum.publicnode.com",
-            ]
-
-        w3 = None
-        for url in _rpc_candidates():
-            try:
-                logger.info(f"Connecting to RPC: {url}")
-                candidate = Web3(Web3.HTTPProvider(url, request_kwargs={'timeout': 20}))
-                if candidate.is_connected():
-                    w3 = candidate
-                    logger.info(f"✅ Web3 connected via {url}")
-                    break
-                logger.warning(f"RPC not reachable: {url}")
-            except Exception as e:
-                logger.warning(f"RPC error for {url}: {e}")
-
+        w3 = get_web3()
         if w3 is None:
             logger.error("Web3 connection failed")
             return False

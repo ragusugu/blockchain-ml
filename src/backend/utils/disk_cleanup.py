@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-logging.basicConfig(level=logging.INFO)
+from logging_config import setup_logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 class DiskCleanupManager:

@@ -9,11 +9,11 @@ import logging
 import os
 from web3 import Web3
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from connections import get_web3, get_db_engine
+from logging_config import setup_logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Color codes for output
@@ -23,44 +23,15 @@ YELLOW = '\033[93m'
 RESET = '\033[0m'
 
 
-def _rpc_candidates():
-    env = os.getenv("RPC_URL", "")
-    urls = [u.strip() for u in env.split(",") if u.strip()]
-    return urls or [
-        "https://rpc.drpc.org",
-        "https://cloudflare-eth.com",
-        "https://ethereum.publicnode.com",
-    ]
-
-
-def _connect_web3():
-    for url in _rpc_candidates():
-        try:
-            logger.info(f"Trying RPC: {url}")
-            w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 20}))
-            if not w3.is_connected():
-                logger.warning(f"{YELLOW}RPC not reachable: {url}{RESET}")
-                continue
-            try:
-                block_number = w3.eth.block_number
-            except Exception as e:
-                logger.warning(f"{YELLOW}RPC connected but block_number failed on {url}: {e}{RESET}")
-                continue
-            logger.info(f"{GREEN}✓ Web3 connected via {url} (latest block {block_number}){RESET}")
-            return w3, url, block_number
-        except Exception as e:
-            logger.warning(f"{YELLOW}RPC error for {url}: {e}{RESET}")
-    return None, None, None
-
-
 def test_web3_connection():
     """Test 1: Web3 RPC Connection"""
     logger.info(f"{YELLOW}[TEST 1] Testing Web3 RPC Connection...{RESET}")
-    w3, url, block_number = _connect_web3()
+    w3 = get_web3()
     if w3 is None:
         logger.error(f"{RED}✗ Web3 not connected{RESET}")
         return False, None, None
-    logger.info(f"{GREEN}✓ Web3 connected. Latest block: {block_number} ({url}){RESET}")
+    block_number = w3.eth.block_number
+    logger.info(f"{GREEN}✓ Web3 connected. Latest block: {block_number}{RESET}")
     return True, block_number, w3
 
 
@@ -129,17 +100,17 @@ def test_database_connection():
     """Test 4: Database Connection"""
     logger.info(f"{YELLOW}[TEST 4] Testing PostgreSQL Connection...{RESET}")
     try:
-        import os
-        from sqlalchemy import create_engine, text
+        from sqlalchemy import text
 
-        db_url = os.getenv('DATABASE_URL', 'postgresql://blockchain_user:change-me-to-secure-password@127.0.0.1:5432/blockchain_db')
-        engine = create_engine(db_url, echo=False)
+        engine = get_db_engine(echo=False)
+        if not engine:
+            raise Exception("Connection factory failed")
 
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
             conn.commit()
 
-        logger.info(f"{GREEN}✓ PostgreSQL connected: {db_url.split('@')[1]}{RESET}")
+        logger.info(f"{GREEN}✓ PostgreSQL connected{RESET}")
         return True, engine
     except Exception as e:
         logger.warning(f"{YELLOW}⊘ Database unavailable or auth failed: {e}{RESET}")
