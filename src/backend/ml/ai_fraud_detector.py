@@ -15,10 +15,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 
@@ -190,8 +186,8 @@ class BlockchainFraudDetector:
             logger.info("Generating synthetic training data (for demo)...")
             # Simple heuristic: flag high value + high gas price + new address
             y = (
-                (X['value_zscore'] > 2) & 
-                (X['gas_price_zscore'] > 2) |
+                ((X['value_zscore'] > 2) & 
+                (X['gas_price_zscore'] > 2)) |
                 (X['tx_volume_1h'] > 100)
             ).astype(int)
             
@@ -364,10 +360,10 @@ class BlockchainFraudDetector:
             'avg_fraud_probability': float(results_df['fraud_probability'].mean()),
             'high_risk': [
                 {
-                    'block': int(row['block_number']),
-                    'from': str(row['from_address']),
-                    'to': str(row['to_address']),
-                    'value': float(row['value_eth']),
+                    'block': int(row.get('block_number', 0)),
+                    'from': str(row.get('from_address') or row.get('from_addr', '')),
+                    'to': str(row.get('to_address') or row.get('to_addr', '')),
+                    'value': float(row.get('value_eth') or row.get('value', 0)),
                     'fraud_prob': float(row['fraud_probability']),
                     'risk': row['risk_level']
                 }

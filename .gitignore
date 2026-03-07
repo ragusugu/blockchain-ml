@@ -33,8 +33,8 @@ node_modules/
 .vite/
 
 # Model files (optional - uncomment if you want to ignore)
-# *.pkl
-# fraud_model.pkl
+*.pkl
+fraud_model.pkl
 
 # Logs
 *.log

@@ -42,8 +42,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Get the directory path
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend', 'dist')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))                       # .../src/backend/api
+SRC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .../src
+FRONTEND_DIR = os.path.join(SRC_DIR, 'frontend', 'dist')
 
 # Performance metrics storage
 performance_metrics = {
@@ -52,13 +53,25 @@ performance_metrics = {
     'last_request_time': 0.0,
 }
 
-# Simple in-memory job store
+# Simple in-memory job store with TTL cleanup
 jobs = {}
+JOB_TTL_SECONDS = 600  # Clean up completed jobs after 10 minutes
 
-# Response cache with TTL (time-to-live)
-from datetime import timedelta
-response_cache = {}
-CACHE_TTL = 30  # seconds
+def _cleanup_old_jobs():
+    """Remove completed/errored jobs older than JOB_TTL_SECONDS"""
+    now = datetime.now()
+    to_delete = []
+    for job_id, job in jobs.items():
+        completed_at = job.get('completed_at')
+        if completed_at:
+            try:
+                completed_time = datetime.fromisoformat(completed_at)
+                if (now - completed_time).total_seconds() > JOB_TTL_SECONDS:
+                    to_delete.append(job_id)
+            except (ValueError, TypeError):
+                pass
+    for job_id in to_delete:
+        del jobs[job_id]
 
 # Initialize cleanup manager
 cleanup_manager = DiskCleanupManager(threshold_percent=20)
@@ -394,6 +407,7 @@ def start_transactions_job():
 @app.route('/api/transactions/job/<job_id>', methods=['GET'])
 def get_transactions_job(job_id):
     """Get async job status and result when ready."""
+    _cleanup_old_jobs()  # Evict stale jobs
     job = jobs.get(job_id)
     if not job:
         return jsonify({'error': 'Job not found'}), 404
@@ -999,9 +1013,9 @@ def get_transaction_details(tx_hash):
             'block': tx['blockNumber'],
             'from': tx['from'],
             'to': tx['to'],
-            'value_eth': w3.from_wei(tx['value'], 'ether'),
+            'value_eth': float(w3.from_wei(tx['value'], 'ether')),
             'gas_limit': tx['gas'],
-            'gas_price_gwei': w3.from_wei(tx['gasPrice'], 'gwei'),
+            'gas_price_gwei': float(w3.from_wei(tx['gasPrice'], 'gwei')),
             'gas_used': receipt['gasUsed'] if receipt else 'N/A',
             'status': '✅ Success' if receipt and receipt['status'] == 1 else '❌ Failed',
             'timestamp': datetime.fromtimestamp(w3.eth.get_block(tx['blockNumber'])['timestamp']).isoformat(),

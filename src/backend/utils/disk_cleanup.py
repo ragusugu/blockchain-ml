@@ -83,14 +83,19 @@ class DiskCleanupManager:
             
             # Delete files in parallel for better performance
             with ThreadPoolExecutor(max_workers=4) as executor:
-                for item in files_to_delete:
+                def _delete_file(item):
                     try:
                         size = item.stat().st_size
                         item.unlink()
-                        cleaned_size += size
                         logger.info(f"🗑️  Deleted: {item} ({size / (1024**2):.2f}MB)")
+                        return size
                     except Exception as e:
                         logger.warning(f"Could not delete {item}: {e}")
+                        return 0
+                
+                futures = [executor.submit(_delete_file, item) for item in files_to_delete]
+                for future in futures:
+                    cleaned_size += future.result()
         
         except Exception as e:
             logger.error(f"Error cleaning {directory}: {e}")

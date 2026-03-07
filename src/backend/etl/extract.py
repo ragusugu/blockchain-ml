@@ -49,7 +49,6 @@ def extract_block(block_number, w3):
                     "block_hash": block.get("hash").hex() if block.get("hash") else None,
                     "timestamp": block.get("timestamp"),
                     "tx_hash": tx.get("hash").hex() if tx.get("hash") else None,
-                    "transaction_hash": tx.get("hash").hex() if tx.get("hash") else None,
                     "transaction_index": tx.get("transactionIndex"),
                     "from_address": tx.get("from"),
                     "to_address": tx.get("to"),
@@ -69,7 +68,7 @@ def extract_block(block_number, w3):
         logger.info(f"Extracted {len(rows)} transactions from block {block_number}")
         
         # Cache the result (limit cache size to 100 blocks)
-        if len(_block_cache) > 100:
+        while len(_block_cache) >= 100:
             _block_cache.pop(next(iter(_block_cache)))  # Remove oldest
         _block_cache[cache_key] = rows
         

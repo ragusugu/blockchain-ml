@@ -3,31 +3,25 @@ Ankr Streaming Service
 Real-time blockchain data streaming using Ankr's free API
 Runs independently without affecting batch processing
 """
-import os
 import json
 import logging
-import asyncio
 import threading
+import time
 from datetime import datetime
 from typing import Callable, Dict, Any, Optional
 from web3 import Web3
 from collections import defaultdict
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import cfg
 from etl.transform import transform_data
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - [Ankr Streamer] - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
-# Configuration
-ANKR_RPC_URL = os.getenv('ANKR_RPC_URL', 'https://rpc.ankr.com/eth')
-POLLING_INTERVAL = int(os.getenv('ANKR_POLLING_INTERVAL', '12'))  # Ethereum block time
-BATCH_SIZE = int(os.getenv('ANKR_BATCH_SIZE', '10'))
-STREAMING_ENABLED = os.getenv('STREAMING_ENABLED', 'true').lower() == 'true'
+# Configuration from centralized config
+ANKR_RPC_URL = cfg.ANKR_RPC_URL
+POLLING_INTERVAL = cfg.ANKR_POLLING_INTERVAL
+BATCH_SIZE = cfg.ANKR_BATCH_SIZE
+STREAMING_ENABLED = cfg.STREAMING_ENABLED
 
 
 class AnkrBlockchainStreamer:
@@ -175,12 +169,32 @@ class AnkrBlockchainStreamer:
             batch = self.block_buffer.copy()
             logger.info(f"📦 Flushing {len(batch)} blocks to storage")
             
-            # Transform data
-            transformed_data = transform_data(batch)
+            # Flatten block-level data into transaction-level rows
+            # transform_data() expects a list of transaction dicts, not block dicts
+            tx_rows = []
+            for block_data in batch:
+                for tx in block_data.get('transactions', []):
+                    tx_rows.append({
+                        'block_number': block_data['block_number'],
+                        'block_hash': block_data.get('block_hash'),
+                        'timestamp': block_data.get('timestamp'),
+                        'tx_hash': tx.get('hash'),
+                        'transaction_index': 0,
+                        'from_address': tx.get('from'),
+                        'to_address': tx.get('to'),
+                        'value_eth': tx.get('value', 0),
+                        'gas': 0,
+                        'gas_price_gwei': tx.get('gas_price', 0),
+                        'gas_used': tx.get('gas_used', 0),
+                        'cumulative_gas_used': 0,
+                        'status': tx.get('status', 1),
+                        'contract_address': None,
+                        'effective_gas_price': 0,
+                    })
             
-            # Here you could save to database or send to webhook
-            # For now, just log the data
-            logger.debug(f"Transformed {len(transformed_data)} transactions")
+            if tx_rows:
+                transformed_data = transform_data(tx_rows)
+                logger.debug(f"Transformed {len(transformed_data)} transactions")
             
             self.block_buffer.clear()
             
@@ -232,12 +246,12 @@ class AnkrBlockchainStreamer:
                         logger.debug(f"No new blocks. Latest: {current_block}")
                     
                     # Wait before next poll
-                    asyncio.run(asyncio.sleep(POLLING_INTERVAL))
+                    time.sleep(POLLING_INTERVAL)
                     
                 except Exception as e:
                     logger.error(f"❌ Streaming error: {e}")
                     self.stats['errors'] += 1
-                    asyncio.run(asyncio.sleep(5))  # Wait before retry
+                    time.sleep(5)  # Wait before retry
                     
         except KeyboardInterrupt:
             logger.info("⏹️  Streaming stopped by user")
@@ -256,7 +270,7 @@ class AnkrBlockchainStreamer:
         
         self.stream_thread = threading.Thread(
             target=self.stream,
-            daemon=False,
+            daemon=True,
             name="AnkrStreamer"
         )
         self.stream_thread.start()

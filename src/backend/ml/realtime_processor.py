@@ -4,32 +4,28 @@ Process Ethereum data in real-time with parallel execution
 3 output modes: Console, JSON file, or Custom webhook
 Performance: ~1000 tx/sec on modern hardware
 """
-import os
 import json
 import logging
 import time
 import pandas as pd
 from datetime import datetime
-from web3 import Web3
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from etl.extract import extract_blocks
-from etl.transform import transform_data
 from concurrent.futures import ThreadPoolExecutor
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+from config import cfg
+from connections import get_web3
+from logging_config import setup_logging
+from etl.extract import extract_blocks
+from etl.transform import transform_data
+
+setup_logging()
 logger = logging.getLogger(__name__)
 
-# Configuration
-RPC_URL = os.getenv('RPC_URL', "https://rpc.drpc.org")
-BATCH_SIZE = int(os.getenv('BATCH_SIZE', '5'))
-POLLING_INTERVAL = int(os.getenv('POLLING_INTERVAL', '10'))  # Reduced from 60 to 10 seconds
-MAX_WORKERS = int(os.getenv('MAX_WORKERS', '5'))  # Parallel threads
-OUTPUT_MODE = os.getenv('OUTPUT_MODE', 'console')  # console, json, csv, webhook
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
+# Configuration from centralized config
+BATCH_SIZE = cfg.BATCH_SIZE
+POLLING_INTERVAL = cfg.POLLING_INTERVAL
+MAX_WORKERS = cfg.MAX_WORKERS
+OUTPUT_MODE = cfg.OUTPUT_MODE
+WEBHOOK_URL = cfg.WEBHOOK_URL
 
 
 class RealtimeBlockchainProcessor:
@@ -48,40 +44,15 @@ class RealtimeBlockchainProcessor:
         self.output_executor = ThreadPoolExecutor(max_workers=1)  # Single thread for I/O
     
     def initialize(self):
-        """Initialize Web3 connection with retries"""
-        max_retries = 5
-        retry_delay = 5
-
-        def _rpc_candidates():
-            urls = [u.strip() for u in RPC_URL.split(',') if u.strip()]
-            return urls or [
-                "https://rpc.drpc.org",
-                "https://cloudflare-eth.com",
-                "https://ethereum.publicnode.com",
-            ]
-
-        for attempt in range(max_retries):
-            for url in _rpc_candidates():
-                try:
-                    logger.info(f"🔌 Connecting to RPC: {url} (attempt {attempt + 1}/{max_retries})")
-                    self.w3 = Web3(Web3.HTTPProvider(url, request_kwargs={'timeout': 30}))
-
-                    if not self.w3.is_connected():
-                        logger.warning(f"Web3 connection failed on {url}")
-                        continue
-
-                    self.last_block = self.w3.eth.block_number
-                    logger.info(f"✅ Connected to Ethereum - Current block: {self.last_block} via {url}")
-                    logger.info(f"⚙️  Polling interval: {POLLING_INTERVAL}s, Workers: {MAX_WORKERS}")
-                    return True
-                except Exception as e:
-                    logger.warning(f"RPC error for {url}: {e}")
-
-            if attempt < max_retries - 1:
-                logger.info(f"⏳ Retrying in {retry_delay}s...")
-                time.sleep(retry_delay)
-
-        logger.error(f"❌ Failed to connect after {max_retries} attempts")
+        """Initialize Web3 connection via shared factory"""
+        self.w3 = get_web3()
+        if not self.w3:
+            logger.error("❌ Failed to connect to Web3")
+            return False
+        
+        self.last_block = self.w3.eth.block_number
+        logger.info(f"✅ Connected — block: {self.last_block}, polling: {POLLING_INTERVAL}s, workers: {MAX_WORKERS}")
+        return True
         return False
     
     def process_realtime(self, continuous=True, interval=None):
@@ -261,7 +232,7 @@ def main():
         return
     
     # Process continuously (Ctrl+C to stop)
-    processor.process_realtime(continuous=True, interval=30)
+    processor.process_realtime(continuous=True)
 
 
 if __name__ == "__main__":

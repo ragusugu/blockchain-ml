@@ -57,17 +57,13 @@ def transform_data(rows):
     
     # Rename columns for database compatibility
     df.rename(columns={
-        'block_number': 'block_number',
-        'block_hash': 'block_hash',
         'timestamp': 'block_timestamp',
-        'transaction_hash': 'tx_hash',
         'transaction_index': 'tx_index',
         'from_address': 'from_addr',
         'to_address': 'to_addr',
         'value_eth': 'value',
         'gas_price_gwei': 'gas_price',
         'contract_address': 'contract_addr',
-        'effective_gas_price': 'effective_gas_price'
     }, inplace=True)
     
     logger.info(f"Transformed {len(df)} rows")

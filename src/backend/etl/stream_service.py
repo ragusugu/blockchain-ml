@@ -3,23 +3,15 @@ Standalone Ankr Streaming Service
 Runs independently from batch ETL processing
 Start this separately or in a different container
 """
-import os
-import sys
 import logging
 import time
 import signal
 from typing import Dict, Any
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+from logging_config import setup_logging
 from etl.streaming_manager import initialize_streaming, start_streaming_service, stop_streaming_service, get_streaming_stats
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - [StreamingService] - %(levelname)s - %(message)s'
-)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

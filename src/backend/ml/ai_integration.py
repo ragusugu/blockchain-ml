@@ -4,16 +4,9 @@ Shows how to integrate fraud detection into ETL workflow
 3 different integration points
 """
 import logging
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from etl.transform import transform_data
 from ml.ai_fraud_detector import BlockchainFraudDetector
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 
@@ -49,8 +42,12 @@ class AIEnrichedETL:
         # Step 2: Add fraud scores
         df_enriched = self.detector.predict(df_clean, threshold=0.5)
         
-        # Step 3: Add anomaly scores (unsupervised)
-        df_enriched = self.detector.anomaly_detection(df_clean, contamination=0.1)
+        # Step 3: Add anomaly scores (unsupervised) and merge into enriched DataFrame
+        df_anomaly = self.detector.anomaly_detection(df_clean, contamination=0.1)
+        if df_enriched is not None and df_anomaly is not None:
+            for col in ['anomaly_flag', 'anomaly_score']:
+                if col in df_anomaly.columns:
+                    df_enriched[col] = df_anomaly[col].values
         
         return df_enriched
     

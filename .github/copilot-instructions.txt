@@ -1,0 +1,272 @@
+# AI Copilot Instructions - Blockchain ML Fraud Detection
+
+## Project Overview
+Blockchain ML is a production-ready fraud detection system analyzing Ethereum transactions using machine learning. The architecture uses Flask (backend API), React+Vite (frontend), PostgreSQL (database), and Web3.py (blockchain extraction) with Docker/Kubernetes deployment support.
+
+## Architecture Essentials
+
+### Component Architecture
+```
+Frontend (React/Vite)  →  API Gateway (Flask)  →  ETL Pipeline  →  PostgreSQL
+   :3000                   :5000                    Extract/Transform/Load    Database
+  - Mode Selector         - REST endpoints        - Web3 extraction         - transaction_receipts
+  - Dashboard UI          - Async job queue       - Data transformation      - pipeline_state
+  - Auto-refresh          - CORS enabled          - AI fraud scoring
+```
+
+### Key Data Flows
+1. **Batch ETL**: Web3 RPC → `extract_blocks()` (15 fields/tx) → `transform_data()` (clean/type) → `df.to_sql()` bulk insert
+2. **Real-time Stream**: Ankr WebSocket → Transaction analysis → AI fraud scoring → Store + Alert
+3. **Frontend → Backend**: User clicks → `POST /api/transactions` → Returns job_id → Poll `GET /api/transactions/job/<id>`
+
+### Environment Setup
+- **Python**: 3.11+ with Flask 3.0, SQLAlchemy 2.0, web3.py 6.0+
+- **Frontend**: React 18, Vite 5, Material-UI 5, Framer Motion, Axios
+- **Database**: PostgreSQL 15-alpine with connection pooling
+- **Deployment**: Docker Compose (dev) or Kubernetes (prod)
+- **RPC Providers**: Public endpoints (ethereum.publicnode.com, rpc.drpc.org, cloudflare-eth.com) or Alchemy/Infura
+
+## Developer Workflows
+
+### Local Development (Three Terminal Setup)
+```bash
+# Terminal 1: PostgreSQL (if not using remote DB)
+docker run -e POSTGRES_PASSWORD=change-me -p 5432:5432 postgres:15-alpine
+
+# Terminal 2: Flask backend (runs on :5000)
+cd src/backend
+python api/ai_dashboard.py
+
+# Terminal 3: React frontend (Vite dev server on :3000)
+cd src/frontend
+npm run dev  # Vite auto-proxies /api/* to Flask
+```
+**Critical**: Vite config at [src/frontend/vite.config.js](src/frontend/vite.config.js) proxies `/api` → `http://localhost:5000`
+
+### Building & Deployment
+- **Docker Compose** (5 min): `bash scripts/deployment/deploy-docker.sh` - Creates 4 containers: postgres, backend, frontend, worker
+- **Kubernetes** (15 min): `bash scripts/deployment/deploy-kubernetes.sh` - Deploys to Kind cluster with StatefulSet postgres
+- **Frontend Build**: `cd src/frontend && npm run build` → Outputs to `dist/` (Flask serves in production)
+
+### Testing Key Endpoints
+```bash
+# Health check
+curl http://localhost:5000/api/health
+
+# Available processing options (dual-mode)
+curl http://localhost:5000/api/options
+
+# Start async batch ETL job
+curl -X POST http://localhost:5000/api/transactions \
+  -H "Content-Type: application/json" \
+  -d '{"option": "1", "block_count": 10}'
+
+# Poll async job status
+curl http://localhost:5000/api/transactions/job/<job_id>
+
+# View transaction statistics
+curl http://localhost:5000/api/stats
+
+# Toggle AI model runtime
+curl -X POST http://localhost:5000/api/model-toggle \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
+
+## Project-Specific Patterns
+
+### ETL Pipeline (Extract → Transform → Load)
+**Location**: `src/backend/etl/` with orchestration in `src/backend/api/ai_dashboard.py`
+
+Key modules:
+- **extract.py**: `extract_blocks(start, end, w3, parallel=True)` - Parallel block fetching with ThreadPoolExecutor
+  - Fetches 15 transaction fields per tx from RPC
+  - Returns `List[Dict]` with raw blockchain data
+- **transform.py**: `transform_data(rows)` - Cleans/normalizes types, adds processed_at timestamp
+  - Type enforcement: int64 (block_number), float64 (value), int8 (status)
+  - Null handling with `.fillna()`
+  - Returns pandas DataFrame
+- **Main flow**: Batch reads blocks → Transforms → Bulk insert with duplicate handling (`ON CONFLICT DO NOTHING`)
+
+**Critical pattern**: Always initialize Web3 connection with `w3 = Web3(Web3.HTTPProvider(RPC_URL))` and check `w3.is_connected()` before extraction. RPC_URL can be comma-separated list for fallback.
+
+### Dual-Mode Processing
+**Scheduled Mode**: Batch ETL runs on user trigger or cron schedule, processes historical blocks in intervals
+**Real-Time Mode**: Ankr streaming service (WebSocket) analyzes transactions as they appear
+
+Both store results in same PostgreSQL schema. Mode selection is frontend-driven (React ModeSelector component) and stateless on backend (options endpoint serves both).
+
+### Flask API Structure
+**Location**: `src/backend/api/ai_dashboard.py` (main entry point, 1200+ lines)
+
+Endpoint patterns:
+- `GET /api/options` → Returns processing options JSON (scheduled vs real-time)
+- `POST /api/transactions` → Accepts JSON body `{option, block_count}`, returns async job ID
+- `GET /api/transactions/job/<job_id>` → Poll for async results
+- `GET /api/health` → Kubernetes liveness probes
+- `POST /api/model-toggle` → Enable/disable AI model at runtime
+- `GET /api/stats` → Transaction statistics and fraud metrics
+
+Response format (always consistent):
+```python
+return jsonify({'status': 'ok', 'data': {...}}), 200
+# or error:
+return jsonify({'error': 'message', 'details': '...'}), 400
+```
+
+**Job Queue Pattern**: POST endpoints return `job_id` immediately, client polls status endpoint until completion. Uses threading with job status dict.
+
+### Frontend Architecture (React)
+**Location**: `src/frontend/src/`
+
+Key structure:
+- **App.jsx**: State management (mode, refresh counter, Etherscan links), 959 lines
+  - Uses sessionStorage to persist mode selection across refreshes
+  - Manages auto-refresh with configurable intervals (default 5 min)
+  - Etherscan integration: `https://etherscan.io/tx/${tx_hash}`
+- **ModeSelector.jsx**: Landing page with two processing mode cards (Scheduled vs Real-Time)
+- **OptionCard.jsx**: Individual option selection UI with animations
+- **TransactionTable.jsx**: Results display with Etherscan integration and fraud score highlighting
+- **Vite proxy** (`vite.config.js`): Auto-proxies `/api/*` to Flask backend at `http://localhost:5000`
+
+**Important Features** (DO NOT REMOVE):
+- Refresh counter: Updates every 10s, critical for real-time monitoring
+- Etherscan links: Direct blockchain explorer integration for tx verification
+- sessionStorage persistence: Maintains user selections across page reloads
+
+### ML Integration
+**Location**: `src/backend/ml/`
+
+- **ai_integration.py**: `AIEnrichedETL` class wraps detector + feature engineering
+  - Enriches transactions with fraud scores before storage
+  - Handles model loading and inference pipeline
+- **ai_fraud_detector.py**: Random Forest model with 94.5% accuracy, trained on blockchain features
+  - Features: gas_ratio, value_tier, contract_interaction, etc.
+  - Model file: `blockchain_fraud_model.pkl` loaded at runtime
+- **Runtime toggle**: `POST /api/model-toggle` enables/disables AI at runtime without restart
+- **Fallback**: If model unavailable, API still works (returns unscored transactions, fraud_score=NULL)
+
+**Training**: Run `python src/backend/ml/train_ai_model.py` to retrain model with new data.
+
+### Database Schema
+**PostgreSQL tables**:
+- **transaction_receipts**: 711+ rows, 18 columns
+  - Primary fields: tx_hash (UNIQUE), from_addr, to_addr, value, gas_used, gas_price
+  - Block info: block_number, block_timestamp
+  - Status: status (1=success, 0=failed), fraud_score (0-1, nullable)
+  - Metadata: processed_at, input_data
+- **pipeline_state**: Tracks last_block processed for resumption on failure
+  - Fields: id, last_block, last_processed_at, updated_at
+
+**Key constraint**: `UNIQUE(tx_hash)` with `ON CONFLICT DO NOTHING` prevents duplicate inserts during reprocessing.
+
+**Connection pattern**: Use `get_postgres_connection()` from pool, always `release_postgres_connection()` when done.
+
+### Configuration & Secrets
+- **Environment variables**: `.env` file (copy from `.env.example`)
+- **Critical vars**: 
+  - `RPC_URL`: Ethereum RPC endpoint (can be comma-separated for fallback)
+  - `DATABASE_URL`: PostgreSQL connection string
+  - `POSTGRES_PASSWORD`: Database password (change default!)
+- **No hardcoding**: Always use `os.getenv()` for credentials
+- **Kubernetes**: ConfigMap (02-configmap.yaml) + Secrets (03-secrets.yaml)
+  - Secrets are base64-encoded in manifests
+  - Never commit real secrets to git
+
+### Performance & Monitoring
+- **Disk cleanup**: Manager monitors storage, auto-cleans when <20% free
+  - Location: `src/backend/utils/disk_cleanup.py`
+  - Triggered automatically by background thread
+- **Response caching**: 30s TTL for repeated API calls (reduces DB load)
+- **Performance metrics**: `GET /api/performance` tracks request counts and timings
+- **Health checks**: 
+  - `/health` → Kubernetes liveness (always returns 200)
+  - `/ready` → Kubernetes readiness (checks DB connection)
+  - `/api/health` → Detailed health status with component checks
+
+## Integration Points
+
+### Web3 + Ethereum RPC
+- Uses `web3.py` library to connect to public RPC endpoints
+- Key methods: `w3.eth.get_block()`, `w3.eth.get_transaction_receipt()` (rate-limited, batch carefully)
+- **Fallback pattern**: RPC_URL can be comma-separated list, code tries each in order
+- Handle connection failures gracefully - API should never crash on RPC timeout
+- Test connection: `w3.is_connected()` before making requests
+
+### Database Connection
+- SQLAlchemy engine manages PostgreSQL pooling
+- Connection from pool via `get_postgres_connection()`, release via `release_postgres_connection()`
+- Bulk inserts with `df.to_sql(if_exists='append', index=False)` for performance
+- **Never commit sensitive data**: Use environment variables for credentials
+
+### Frontend ↔ Backend Communication
+- CORS enabled via Flask-CORS (no manual headers needed)
+- All requests use `axios` (frontend) with async/await
+- No session management - stateless REST API
+- **Job queue pattern**: POST request returns job ID immediately, client polls for completion
+  - Prevents timeout on long-running ETL jobs
+  - Frontend polls `/api/transactions/job/<id>` every 2 seconds
+
+## File Structure Reference
+```
+src/backend/
+  ├── api/ai_dashboard.py          ← MAIN ENTRY (Flask routes, initialization)
+  ├── etl/
+  │   ├── extract.py              ← Block/transaction extraction
+  │   ├── transform.py            ← Data cleaning & normalization
+  │   ├── main_etl.py            ← Batch orchestration
+  │   └── streaming_manager.py    ← Ankr integration
+  ├── ml/
+  │   ├── ai_integration.py       ← Model wrapper
+  │   ├── ai_fraud_detector.py    ← Random Forest model
+  │   └── train_ai_model.py       ← Model training script
+  └── utils/
+      └── disk_cleanup.py         ← Automatic storage management
+
+src/frontend/
+  └── src/
+      ├── App.jsx                 ← Root component & state
+      ├── ModeSelector.jsx        ← Mode selection UI
+      └── components/             ← Reusable UI components
+```
+
+## Common Tasks
+
+### Adding an API Endpoint
+1. In `ai_dashboard.py`, add `@app.route('/api/path', methods=['GET'|'POST'])`
+2. Return `jsonify({...})` for consistency
+3. Test with curl before frontend integration
+4. Document in `/api/options` if it's a new processing option
+
+### Modifying ETL Logic
+1. Changes to extraction: Edit `src/backend/etl/extract.py`
+2. Changes to transformation: Edit `src/backend/etl/transform.py`
+3. Test with small block ranges first (e.g., 5 blocks)
+4. Always validate transformed data before database insert
+
+### Debugging Connection Issues
+- Check RPC connectivity: `curl <RPC_URL>` (should return JSON error or data)
+- Check database: `psql postgresql://user:pass@host/db` (requires psql installed)
+- Check Flask logs: Look for "❌" error markers in stderr output
+- Verify environment variables: `echo $RPC_URL` and `echo $DATABASE_URL`
+
+### Deployment Issues
+- Docker: `docker logs <container_id>` for container output
+- Kubernetes: `kubectl logs -n blockchain-ml <pod_name>` 
+- Port conflicts: `lsof -i :5000` (Flask) or `:3000` (React)
+- Database migrations: SQLAlchemy creates tables automatically on first run
+
+## Critical Constraints
+- Do not modify frontend's refresh counter logic - critical feature for users
+- Do not remove Etherscan integration from transaction links
+- Always handle Web3 connection failures gracefully (API should not crash)
+- Preserve dual-mode capability - both batch and real-time should coexist
+- Database schema must include fraud_score column for ML results
+- Frontend Vite proxy must route `/api/*` to Flask at :5000
+
+## Documentation Reference
+- Architecture details: `documentation/architecture/ARCHITECTURE.md`
+- Dual-mode guide: `documentation/guides/DUAL_MODE_README.md`
+- Testing guide: `documentation/guides/TESTING_GUIDE.md`
+- Kubernetes setup: `docker/DOCKER_KUBERNETES_README.md`
+- Quick start: `documentation/guides/QUICK_START_DUAL_MODE.md`
