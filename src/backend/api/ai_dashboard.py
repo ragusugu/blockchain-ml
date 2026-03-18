@@ -393,7 +393,7 @@ def get_transactions_job(job_id):
 
 
 def get_postgres_connection():
-    """Get connection from pool for better performance"""
+    """Get connection from pool with safety guarantees"""
     global db_pool
     if not HAS_POSTGRES:
         return None
@@ -408,16 +408,26 @@ def get_postgres_connection():
             )
             logger.info("✅ PostgreSQL connection pool initialized (2-10 connections)")
         
-        return db_pool.getconn()
+        conn = db_pool.getconn()
+        if conn is None:
+            logger.error("Pool returned None connection")
+        return conn
     except Exception as e:
         logger.error(f"Failed to get connection from pool: {e}")
         return None
 
 def release_postgres_connection(conn):
-    """Return connection to pool"""
+    """Return connection to pool safely"""
     global db_pool
     if db_pool and conn:
-        db_pool.putconn(conn)
+        try:
+            db_pool.putconn(conn)
+        except Exception as e:
+            logger.warning(f"Error returning connection to pool: {e}")
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def persist_transactions(df):
@@ -539,13 +549,20 @@ def ready():
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Check system health and initialization status"""
-    ensure_initialized()
+    """Check system health and initialization status (non-blocking)"""
+    # Don't call ensure_initialized() here — it blocks for minutes
+    # trying RPC connections. Just report current state.
+    w3_ok = False
+    try:
+        w3_ok = w3 is not None and w3.is_connected()
+    except Exception:
+        pass
     return jsonify({
         'status': 'ok',
-        'w3_connected': w3 is not None and w3.is_connected(),
+        'w3_connected': w3_ok,
         'ai_loaded': etl_ai is not None,
         'model_enabled': MODEL_ENABLED,
+        'initialized': _initialized,
         'timestamp': datetime.now().isoformat()
     })
 
@@ -644,7 +661,7 @@ def serve_static(path):
 def get_options():
     """Get options based on selected processing mode"""
     try:
-        ensure_initialized()
+        # No ensure_initialized() — options are static config, don't need Web3
         mode = request.args.get('mode', 'scheduled')
 
         logger.info(f"📋 Loading options for mode: {mode}")
@@ -758,11 +775,9 @@ def get_options():
 @app.route('/api/transactions', methods=['POST'])
 def get_transactions():
     """Fetch and process transactions based on selected processing mode and option"""
-    request_start = time.time()
-
     # Ensure initialized
     ensure_initialized()
-    
+
     # Check disk space and cleanup if needed
     if cleanup_manager.monitor_and_cleanup():
         logger.warning("⚠️ Disk cleanup triggered due to low space")
@@ -780,161 +795,19 @@ def get_transactions():
         }), 500
 
     data = request.json
-    mode = data.get('mode', 'scheduled')  # 'scheduled' or 'realtime'
+    mode = data.get('mode', 'scheduled')
     option = data.get('option', '1')
-    # Clamp blocks per request to avoid long-running calls (Cloudflare 524)
     requested_blocks = int(data.get('block_count', 5))
     block_count = max(1, min(requested_blocks, MAX_BLOCKS_PER_REQUEST))
 
-    # Enforce mutual exclusivity between batch and streaming
-    mode_state = enforce_mode(mode)
-
     try:
-        if not w3.is_connected():
-            logger.error("❌ Web3 not connected")
-            return jsonify({
-                'error': 'Web3 connection failed',
-                'details': 'Unable to connect to Ethereum RPC. Check RPC_URL environment variable.',
-                'mode_state': mode_state
-            }), 500
+        result = _process_transactions_core(mode, option, block_count)
 
-        # Get current block
-        latest_block = w3.eth.block_number
-        start_block = max(1, latest_block - block_count + 1)
-        end_block = latest_block
-
-        # For scheduled mode, try to get from PostgreSQL cache first
-        cached_data = None
-        if mode == 'scheduled':
-            logger.info(f"📦 Checking PostgreSQL cache for blocks {start_block}-{end_block}")
-            cached_data = get_cached_transactions(start_block, end_block, limit=100)
-        
-        # If we have cached data, use it
-        if cached_data is not None and not cached_data.empty:
-            logger.info(f"✅ Using {len(cached_data)} cached transactions from PostgreSQL")
-            raw_data = cached_data.to_dict('records')
-            extract_time = 0.0
-            data_source = "PostgreSQL Cache"
-        else:
-            # Extract data from blockchain with timing
-            logger.info(f"🔗 Fetching fresh data from blockchain for blocks {start_block}-{end_block}")
-            extract_start = time.time()
-            raw_data = extract_blocks(start_block, end_block, w3, parallel=True, max_workers=5)
-            extract_time = time.time() - extract_start
-            data_source = "Blockchain RPC"
-
-        # Short-circuit if no data
-        if not raw_data:
-            return jsonify({
-                'mode': mode,
-                'option': option,
-                'status': 'No transactions found',
-                'transactions': [],
-                'stats': {},
-                'mode_state': mode_state
-            })
-
-        transform_start = time.time()
-        clean_data = transform_data(raw_data)
-        transform_time = time.time() - transform_start
-
-        # Persist scheduled batches to PostgreSQL without blocking UI
-        if mode == 'scheduled' and STORE_BATCH_RESULTS and HAS_POSTGRES and clean_data is not None and not clean_data.empty:
-            Thread(target=persist_transactions, args=(clean_data.copy(),), daemon=True).start()
-
-        if clean_data is None or clean_data.empty:
-            return jsonify({
-                'mode': mode,
-                'option': option,
-                'status': 'No transactions found',
-                'transactions': [],
-                'stats': {},
-                'mode_state': mode_state
-            })
-
-        # Process based on MODE and OPTION
-        if MODEL_ENABLED:
-            if mode == 'scheduled':
-                logger.info("📊 SCHEDULED MODE: ML scoring enabled")
-                enriched = etl_ai.enrich_with_fraud_scores(raw_data)
-                results = enriched
-                processing_info = "ML scoring active"
-
-                # Kick off optional background training so streaming path stays untouched
-                if TRAIN_MODEL_ON_BATCH:
-                    def _train_async(df_snapshot):
-                        try:
-                            logger.info("🧠 Training model on batch data (async)")
-                            etl_ai.detector.train_model(df_snapshot)
-                            logger.info("✅ Model training complete for batch")
-                        except Exception as e:
-                            logger.warning(f"Model training skipped due to error: {e}")
-
-                    Thread(target=_train_async, args=(clean_data.copy(),), daemon=True).start()
-
-            else:
-                logger.info("⚡ REAL-TIME MODE: ML scoring enabled")
-                enriched = etl_ai.enrich_with_fraud_scores(raw_data)
-                results = enriched
-                processing_info = "Real-Time ML scoring"
-        else:
-            # Pass-through without ML
-            logger.info("⚪ MODEL DISABLED: returning pass-through data")
-            results = pd.DataFrame(raw_data)
-            results['fraud_probability'] = 0.0
-            results['is_fraud'] = 0
-            results['fraud_risk'] = 'MODEL-OFF'
-            processing_info = "AI disabled (pass-through only)"
-
-        # Convert to JSON-serializable format
-        if isinstance(results, dict):
-            results = results.get('main_data', clean_data)
-
-        # Ensure results is a DataFrame and not None
-        if results is None:
-            logger.error("❌ Results is None after processing")
-            results = clean_data
-
-        transactions_raw = results.to_dict('records') if not results.empty else []
-
-        def normalize_tx(tx):
-            return {
-                'hash': tx.get('tx_hash') or tx.get('transaction_hash') or tx.get('hash'),
-                'block_number': tx.get('block_number'),
-                'from_address': tx.get('from_address') or tx.get('from_addr') or tx.get('from'),
-                'to_address': tx.get('to_address') or tx.get('to_addr') or tx.get('to'),
-                'value': float(tx.get('value_eth') or tx.get('value') or 0),
-                'gas_used': tx.get('gas_used') or tx.get('gas'),
-                'status': 'success' if tx.get('status') in [1, 'success', 'SUCCESS', True] else 'failed',
-                'fraud_risk': tx.get('fraud_risk') or tx.get('risk_level') or ('MODEL-OFF' if not MODEL_ENABLED else 'LOW'),
-                'fraud_probability': float(tx.get('fraud_probability', 0)) if MODEL_ENABLED else 0.0,
-            }
-
-        transactions = [normalize_tx(tx) for tx in transactions_raw]
-
-        # Calculate statistics
-        fraud_count = int(results['is_fraud'].sum()) if 'is_fraud' in results.columns else 0
-        total_txs = len(results)
-
-        avg_value_col = 'value_eth' if 'value_eth' in results.columns else 'value'
-        average_value = float(results[avg_value_col].mean()) if avg_value_col in results.columns else 0
-        total_value = float(results[avg_value_col].sum()) if avg_value_col in results.columns else 0
-
-        stats = {
-            'total_transactions': total_txs,
-            'fraud_count': fraud_count,
-            'normal_count': total_txs - fraud_count,
-            'fraud_percentage': f"{(fraud_count/total_txs*100):.1f}%" if total_txs > 0 else "0%",
-            'average_value': average_value,
-            'total_eth_value': total_value,
-            'success_rate': f"{((total_txs - fraud_count)/total_txs*100):.1f}%" if total_txs > 0 else "0%",
-            'processing_mode': mode,
-            'processing_type': processing_info
-        }
-
-        total_time = time.time() - request_start
+        if result.get('error'):
+            return jsonify(result), 500
 
         # Update performance metrics
+        total_time = float(result.get('performance', {}).get('total_time', '0').rstrip('s') or 0)
         performance_metrics['total_requests'] += 1
         performance_metrics['last_request_time'] = total_time
         performance_metrics['avg_response_time'] = (
@@ -942,26 +815,7 @@ def get_transactions():
             / performance_metrics['total_requests']
         )
 
-        logger.info(f"⏱️  Performance - Extract: {extract_time:.3f}s | Transform: {transform_time:.3f}s | Total: {total_time:.3f}s")
-
-        return jsonify({
-            'mode': mode,
-            'option': option,
-            'status': 'success',
-            'block_range': f"{start_block}-{end_block}",
-            'transactions': transactions[:100],  # Limit to 100 for UI
-            'stats': stats,
-            'processing_info': processing_info,
-            'data_source': data_source,  # Show where data came from
-            'mode_state': mode_state,
-            'timestamp': datetime.now().isoformat(),
-            'performance': {
-                'extract_time': f"{extract_time:.3f}s",
-                'transform_time': f"{transform_time:.3f}s",
-                'total_time': f"{total_time:.3f}s",
-                'tx_per_second': f"{total_txs/total_time:.0f}" if total_time > 0 else "0"
-            }
-        })
+        return jsonify(result)
 
     except Exception as e:
         logger.error(f"❌ Error processing transactions (Mode: {mode}, Option: {option}): {str(e)}")
@@ -1009,21 +863,27 @@ def get_transaction_details(tx_hash):
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """Get overall statistics"""
+    """Get overall statistics — non-blocking, returns partial data when Web3 unavailable"""
     try:
-        ensure_initialized()
-        if not w3 or not w3.is_connected():
-            return jsonify({'error': 'Web3 not connected'}), 500
-        
-        latest_block = w3.eth.block_number
-        gas_price_gwei = w3.from_wei(w3.eth.gas_price, 'gwei')
-        stats = {
-            'latest_block': latest_block,
-            'gas_price': float(gas_price_gwei),
-            'gas_price_display': f"{gas_price_gwei:.8f}",
-            'connected': True,
-            'timestamp': datetime.now().isoformat()
-        }
+        # Don't call ensure_initialized() — it blocks for minutes trying RPC
+        if w3 and w3.is_connected():
+            latest_block = w3.eth.block_number
+            gas_price_gwei = w3.from_wei(w3.eth.gas_price, 'gwei')
+            stats = {
+                'latest_block': latest_block,
+                'gas_price': float(gas_price_gwei),
+                'gas_price_display': f"{gas_price_gwei:.8f}",
+                'connected': True,
+                'timestamp': datetime.now().isoformat()
+            }
+        else:
+            stats = {
+                'latest_block': None,
+                'gas_price': None,
+                'gas_price_display': 'N/A',
+                'connected': False,
+                'timestamp': datetime.now().isoformat()
+            }
         
         return jsonify(stats)
     
@@ -1033,15 +893,18 @@ def get_stats():
 
 @app.route('/api/model-info', methods=['GET'])
 def get_model_info():
-    """Get AI model information"""
+    """Get AI model information with actual metrics"""
     try:
         if etl_ai and etl_ai.detector.model:
+            metrics = getattr(etl_ai.detector, 'metrics', {})
             info = {
                 'model_type': 'RandomForest',
                 'status': 'Loaded ✅',
                 'features': etl_ai.detector.feature_names,
-                'accuracy': '94.5%',
-                'roc_auc': '0.982'
+                'accuracy': f"{metrics.get('accuracy', 0) * 100:.1f}%" if metrics.get('accuracy') else 'N/A',
+                'roc_auc': f"{metrics.get('roc_auc', 0):.3f}" if metrics.get('roc_auc') else 'N/A',
+                'train_samples': metrics.get('train_samples', 'N/A'),
+                'trained_at': metrics.get('trained_at', 'N/A'),
             }
         else:
             info = {
@@ -1187,9 +1050,17 @@ def internal_error(error):
 
 
 if __name__ == '__main__':
-    # Initialize
-    if initialize():
-        logger.info("🚀 Dashboard running on http://localhost:5000")
-        app.run(debug=True, host='0.0.0.0', port=5000)
-    else:
-        logger.error("Failed to initialize dashboard")
+    # Start initialization in background thread so the server starts immediately
+    # Web3/AI init may take minutes if RPC is unavailable — endpoints handle disconnected state gracefully
+    import threading
+    def _bg_init():
+        try:
+            initialize()
+            logger.info("✅ Background initialization complete")
+        except Exception as e:
+            logger.warning(f"⚠️ Background initialization failed: {e}")
+
+    threading.Thread(target=_bg_init, daemon=True).start()
+
+    logger.info("🚀 Dashboard running on http://localhost:5000")
+    app.run(debug=True, host='0.0.0.0', port=5000)

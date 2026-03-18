@@ -82,6 +82,7 @@ function App() {
   const [aiLoaded, setAiLoaded] = useState(true)
   const [nextRefreshTime, setNextRefreshTime] = useState(null)
   const [refreshCount, setRefreshCount] = useState(0)
+  const [modelMetrics, setModelMetrics] = useState({ accuracy: null, roc_auc: null })
 
   // Save only processingMode to sessionStorage
   useEffect(() => {
@@ -92,10 +93,26 @@ function App() {
     sessionStorage.setItem('blockCount', blockCount.toString())
   }, [blockCount])
 
+  // Fetch real model metrics
+  const fetchModelMetrics = async () => {
+    try {
+      const response = await axios.get('/api/model-info')
+      if (response.data && response.data.status !== 'Not loaded') {
+        setModelMetrics({
+          accuracy: response.data.accuracy ?? response.data.metrics?.accuracy,
+          roc_auc: response.data.roc_auc ?? response.data.metrics?.roc_auc,
+        })
+      }
+    } catch (err) {
+      console.warn('Could not fetch model metrics:', err.message)
+    }
+  }
+
   // Restore session on mount and check health
   useEffect(() => {
     checkHealth()
     fetchStats()
+    fetchModelMetrics()
     
     // Restore previous session if exists
     const savedMode = sessionStorage.getItem('processingMode')
@@ -260,8 +277,8 @@ function App() {
         const newTxs = result.transactions || []
         if (newTxs.length > 0) {
           setTransactions((prevTxs) => {
-            const existingHashes = new Set(prevTxs.map(tx => tx.tx_hash || tx.transaction_hash))
-            const uniqueNewTxs = newTxs.filter(tx => !existingHashes.has(tx.tx_hash || tx.transaction_hash))
+            const existingHashes = new Set(prevTxs.map(tx => tx.hash || tx.tx_hash || tx.transaction_hash))
+            const uniqueNewTxs = newTxs.filter(tx => !existingHashes.has(tx.hash || tx.tx_hash || tx.transaction_hash))
             if (uniqueNewTxs.length > 0) {
               console.log(`✨ Found ${uniqueNewTxs.length} new transaction(s), prepending to list`)
               return [...uniqueNewTxs, ...prevTxs]
@@ -294,8 +311,8 @@ function App() {
         const newTxs = result.transactions || []
         if (newTxs.length > 0) {
           setTransactions((prevTxs) => {
-            const existingHashes = new Set(prevTxs.map(tx => tx.tx_hash || tx.transaction_hash))
-            const uniqueNewTxs = newTxs.filter(tx => !existingHashes.has(tx.tx_hash || tx.transaction_hash))
+            const existingHashes = new Set(prevTxs.map(tx => tx.hash || tx.tx_hash || tx.transaction_hash))
+            const uniqueNewTxs = newTxs.filter(tx => !existingHashes.has(tx.hash || tx.tx_hash || tx.transaction_hash))
             if (uniqueNewTxs.length > 0) {
               console.log(`✨ Found ${uniqueNewTxs.length} new transaction(s), prepending to list`)
               return [...uniqueNewTxs, ...prevTxs]
@@ -449,7 +466,6 @@ function App() {
           {/* Left Panel - Options */}
           <Grid item xs={12} md={3}>
             <MotionPaper
-              component={motion.div}
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5 }}
@@ -645,7 +661,6 @@ function App() {
             <AnimatePresence>
               {selectedOptionData && (
                 <MotionPaper
-                  component={motion.div}
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: 20, opacity: 0 }}
@@ -686,7 +701,6 @@ function App() {
             {/* Analysis Summary - Processing Data */}
             {transactions.length > 0 && (
               <MotionPaper
-                component={motion.div}
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ duration: 0.3 }}
@@ -798,7 +812,6 @@ function App() {
 
             {/* Transactions Table */}
             <MotionPaper
-              component={motion.div}
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.3, delay: 0.1 }}
@@ -820,7 +833,6 @@ function App() {
           {/* Right Panel - Details */}
           <Grid item xs={12} md={3}>
             <MotionPaper
-              component={motion.div}
               initial={{ x: 20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5 }}
@@ -876,14 +888,22 @@ function App() {
                     Accuracy
                   </Typography>
                   <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    {modelEnabled ? '94.5%' : 'N/A'}
+                    {modelEnabled
+                      ? (modelMetrics.accuracy != null
+                        ? `${(modelMetrics.accuracy * 100).toFixed(1)}%`
+                        : 'Not trained')
+                      : 'N/A'}
                   </Typography>
 
                   <Typography variant="subtitle2" color="textSecondary" sx={{ mt: 2 }}>
                     ROC-AUC
                   </Typography>
                   <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    {modelEnabled ? '0.982' : 'N/A'}
+                    {modelEnabled
+                      ? (modelMetrics.roc_auc != null
+                        ? modelMetrics.roc_auc.toFixed(3)
+                        : 'Not trained')
+                      : 'N/A'}
                   </Typography>
                 </CardContent>
               </Card>

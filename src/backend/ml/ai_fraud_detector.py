@@ -5,10 +5,11 @@ Integrates with ETL pipeline for intelligent analysis
 """
 import os
 import json
-import pickle
+import hashlib
 import logging
 import numpy as np
 import pandas as pd
+import joblib
 from datetime import datetime, timedelta
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.preprocessing import StandardScaler
@@ -33,6 +34,7 @@ class BlockchainFraudDetector:
     def __init__(self, model_path: str = "fraud_model.pkl"):
         self.model = None
         self.scaler = None
+        self.metrics = {}
         self.model_path = model_path
         self.feature_names = [
             'tx_volume_1h',      # Transactions in last 1 hour
@@ -45,15 +47,29 @@ class BlockchainFraudDetector:
             'value_deviation',   # Deviation from user's average
             'gas_deviation'      # Deviation from network average
         ]
+        # Auto-load model if the file exists
+        self.load_or_create_model()
     
     def load_or_create_model(self):
-        """Load existing model or create new one"""
+        """Load existing model or create new one (supports both joblib and legacy pickle)"""
         if os.path.exists(self.model_path):
             logger.info(f"Loading model from {self.model_path}")
-            with open(self.model_path, 'rb') as f:
-                saved = pickle.load(f)
+            try:
+                saved = joblib.load(self.model_path)
+            except Exception:
+                # Fallback for legacy pickle files
+                import pickle
+                with open(self.model_path, 'rb') as f:
+                    saved = pickle.load(f)
+                logger.info("Loaded legacy pickle model — will re-save as joblib")
                 self.model = saved['model']
                 self.scaler = saved['scaler']
+                self.metrics = saved.get('metrics', {})
+                self._save_model()  # Re-save in joblib format
+                return True
+            self.model = saved['model']
+            self.scaler = saved['scaler']
+            self.metrics = saved.get('metrics', {})
             return True
         else:
             logger.warning("No model found. Train a model first with train_model()")
@@ -61,7 +77,7 @@ class BlockchainFraudDetector:
     
     def extract_features(self, transaction_df, address_history_df=None):
         """
-        Extract features from transaction data (optimized with vectorization)
+        Extract features from transaction data using vectorized pandas operations.
         
         Args:
             transaction_df: DataFrame with current transactions
@@ -70,99 +86,89 @@ class BlockchainFraudDetector:
         Returns:
             Feature matrix for model input
         """
-        # Feature extraction per transaction
-        # Note: Using iterrows for flexibility with column name variations.
-        # For large datasets (10k+ rows), consider vectorizing if column names are standardized.
-        features_list = []
+        df = transaction_df.copy()
         
-        for idx, tx in transaction_df.iterrows():
-            try:
-                from_addr = tx.get('from_address') or tx.get('from_addr')
-                tx_time = tx.get('timestamp') or tx.get('block_timestamp')
+        # Normalize column names — handle both naming conventions
+        if 'from_address' not in df.columns and 'from_addr' in df.columns:
+            df['from_address'] = df['from_addr']
+        if 'to_address' not in df.columns and 'to_addr' in df.columns:
+            df['to_address'] = df['to_addr']
+        if 'timestamp' not in df.columns and 'block_timestamp' in df.columns:
+            df['timestamp'] = df['block_timestamp']
+        if 'value_eth' not in df.columns and 'value' in df.columns:
+            df['value_eth'] = df['value']
+        if 'gas_price_gwei' not in df.columns and 'gas_price' in df.columns:
+            df['gas_price_gwei'] = df['gas_price']
 
-                if from_addr is None or tx_time is None:
-                    logger.warning(f"Missing address or timestamp for tx {idx}; skipping feature extraction")
-                    continue
+        # Drop rows missing critical fields
+        required = ['from_address', 'timestamp']
+        for col in required:
+            if col not in df.columns:
+                logger.error(f"Missing required column: {col}")
+                return pd.DataFrame()
+        
+        df = df.dropna(subset=required)
+        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df = df.dropna(subset=['timestamp'])
+        
+        if df.empty:
+            return pd.DataFrame()
+
+        # Baseline stats (for production, compute from recent network data)
+        GAS_MEAN, GAS_STD = 50.0, 20.0
+        VALUE_MEAN, VALUE_STD = 1.0, 5.0
+
+        # Vectorized feature computation
+        gas_price = df['gas_price_gwei'].fillna(0).astype(float)
+        value_eth = df['value_eth'].fillna(0).astype(float)
+
+        features = pd.DataFrame(index=df.index)
+        features['gas_price_zscore'] = (gas_price - GAS_MEAN) / max(GAS_STD, 1e-6)
+        features['value_zscore'] = (value_eth - VALUE_MEAN) / max(VALUE_STD, 1e-6)
+        features['value_deviation'] = (value_eth - VALUE_MEAN).abs() / max(VALUE_STD, 1e-6)
+        features['gas_deviation'] = (gas_price - GAS_MEAN).abs() / max(GAS_STD, 1e-6)
+        features['time_of_day'] = pd.to_datetime(df['timestamp'], unit='s').dt.hour
+
+        # History-dependent features (default when no history)
+        if address_history_df is not None and not address_history_df.empty:
+            hist = address_history_df.copy()
+            ts_col = 'timestamp' if 'timestamp' in hist.columns else 'block_timestamp' if 'block_timestamp' in hist.columns else None
+            
+            if ts_col and 'from_address' in hist.columns:
+                # Pre-compute per-address aggregates for speed
+                addr_groups = hist.groupby('from_address')
+                vol_1h = {}
+                avg_1h = {}
+                age_days = {}
+                unique_addrs = {}
                 
-                # Validate timestamp is numeric
-                try:
-                    tx_time = float(tx_time)
-                except (ValueError, TypeError):
-                    logger.warning(f"Invalid timestamp format for tx {idx}: {tx_time}")
-                    continue
+                for addr, group in addr_groups:
+                    vol_1h[addr] = len(group)  # Simplified — full 1h window requires per-tx join
+                    avg_1h[addr] = group['value_eth'].mean() if 'value_eth' in group.columns else 0
+                    age_days[addr] = max(0, (group[ts_col].max() - group[ts_col].min()) / 86400)
+                    unique_addrs[addr] = group['to_address'].nunique() if 'to_address' in group.columns else 1
+                
+                features['tx_volume_1h'] = df['from_address'].map(vol_1h).fillna(1).astype(int)
+                features['avg_value_1h'] = df['from_address'].map(avg_1h).fillna(value_eth)
+                features['address_age_days'] = df['from_address'].map(age_days).fillna(0).astype(int)
+                features['unique_addresses'] = df['from_address'].map(unique_addrs).fillna(1).astype(int)
+            else:
+                features['tx_volume_1h'] = 1
+                features['avg_value_1h'] = value_eth
+                features['address_age_days'] = 0
+                features['unique_addresses'] = 1
+        else:
+            features['tx_volume_1h'] = 1
+            features['avg_value_1h'] = value_eth
+            features['address_age_days'] = 0
+            features['unique_addresses'] = 1
 
-                features = {}
-
-                # Feature 1: Transaction volume in last 1 hour
-                if address_history_df is not None:
-                    ts_col = 'timestamp' if 'timestamp' in address_history_df.columns else 'block_timestamp' if 'block_timestamp' in address_history_df.columns else None
-                    if ts_col is None:
-                        features['tx_volume_1h'] = 1
-                        features['avg_value_1h'] = tx.get('value_eth', tx.get('value', 0))
-                    else:
-                        recent = address_history_df[
-                            (address_history_df['from_address'] == from_addr) &
-                            (address_history_df[ts_col] > tx_time - 3600)
-                        ]
-                        features['tx_volume_1h'] = len(recent)
-                        features['avg_value_1h'] = recent['value_eth'].mean() if len(recent) > 0 else tx.get('value_eth', tx.get('value', 0))
-                else:
-                    features['tx_volume_1h'] = 1
-                    features['avg_value_1h'] = tx.get('value_eth', tx.get('value', 0))
-
-                # Feature 2: Gas price Z-score
-                # Note: These are baseline stats. For production, calculate from recent blocks.
-                gas_mean = 50  # Baseline: 50 gwei (update based on network conditions)
-                gas_std = 20
-                gas_price = tx.get('gas_price_gwei', tx.get('gas_price', 0))
-                features['gas_price_zscore'] = (gas_price - gas_mean) / max(gas_std, 1e-6)  # Avoid div by zero
-
-                # Feature 3: Transaction value Z-score
-                # Note: These are baseline stats. For production, calculate from recent blocks.
-                value_mean = 1.0  # Baseline: 1 ETH
-                value_std = 5.0
-                value_eth = tx.get('value_eth', tx.get('value', 0))
-                features['value_zscore'] = (value_eth - value_mean) / max(value_std, 1e-6)  # Avoid div by zero
-
-                # Feature 4: Address age (simplified)
-                if address_history_df is not None and len(address_history_df) > 0:
-                    addr_history = address_history_df[address_history_df['from_address'] == from_addr]
-                    ts_col = 'timestamp' if 'timestamp' in addr_history.columns else 'block_timestamp' if 'block_timestamp' in addr_history.columns else None
-                    if len(addr_history) > 0:
-                        first_tx_time = addr_history[ts_col].min() if ts_col else tx_time
-                        features['address_age_days'] = (datetime.fromtimestamp(tx_time) - datetime.fromtimestamp(first_tx_time)).days
-                    else:
-                        features['address_age_days'] = 0
-                else:
-                    # Default: assume new address if no history available (deterministic, not random)
-                    features['address_age_days'] = 0
-
-                # Feature 5: Unique addresses
-                if address_history_df is not None:
-                    unique_addrs = address_history_df[
-                        address_history_df['from_address'] == from_addr
-                    ]['to_address'].nunique()
-                else:
-                    unique_addrs = 1
-                features['unique_addresses'] = unique_addrs
-
-                # Feature 6: Time of day
-                features['time_of_day'] = datetime.fromtimestamp(tx_time).hour
-
-                # Feature 7: Value deviation
-                features['value_deviation'] = abs(value_eth - value_mean) / max(value_std, 1e-6)
-
-                # Feature 8: Gas deviation
-                features['gas_deviation'] = abs(gas_price - gas_mean) / max(gas_std, 1e-6)
-
-                features_list.append(features)
-
-            except Exception as e:
-                logger.warning(f"Error extracting features for tx {idx}: {e}")
-                continue
-        
-        features_df = pd.DataFrame(features_list)
-        return features_df[self.feature_names] if len(features_df) > 0 else pd.DataFrame()
+        # Reorder to match expected feature names
+        try:
+            return features[self.feature_names]
+        except KeyError as e:
+            logger.error(f"Missing feature columns: {e}")
+            return pd.DataFrame()
     
     def train_model(self, transactions_df, labels_df=None):
         """
@@ -225,16 +231,40 @@ class BlockchainFraudDetector:
         
         # Evaluate
         y_pred = self.model.predict(X_test_scaled)
-        y_pred_proba = self.model.predict_proba(X_test_scaled)[:, 1]
+        proba = self.model.predict_proba(X_test_scaled)
+        # Guard against single-class splits where predict_proba returns 1 column
+        if proba.shape[1] >= 2:
+            y_pred_proba = proba[:, 1]
+        else:
+            y_pred_proba = proba[:, 0]
         
         logger.info("\n" + "="*60)
         logger.info("🎯 MODEL PERFORMANCE")
         logger.info("="*60)
-        logger.info(f"Accuracy: {self.model.score(X_test_scaled, y_test):.3f}")
-        logger.info(f"ROC-AUC: {roc_auc_score(y_test, y_pred_proba):.3f}")
+        accuracy = self.model.score(X_test_scaled, y_test)
+        # roc_auc requires both classes present
+        if len(set(y_test)) < 2:
+            roc_auc = 0.0
+        else:
+            roc_auc = roc_auc_score(y_test, y_pred_proba)
+        logger.info(f"Accuracy: {accuracy:.3f}")
+        logger.info(f"ROC-AUC: {roc_auc:.3f}")
         logger.info("\nClassification Report:")
-        logger.info(classification_report(y_test, y_pred, target_names=['Normal', 'Fraud']))
+        if len(set(y_test)) >= 2:
+            logger.info(classification_report(y_test, y_pred, target_names=['Normal', 'Fraud']))
+        else:
+            logger.info(classification_report(y_test, y_pred))
         logger.info("="*60 + "\n")
+        
+        # Store metrics alongside model
+        self.metrics = {
+            'accuracy': round(accuracy, 4),
+            'roc_auc': round(roc_auc, 4),
+            'train_samples': len(X_train),
+            'test_samples': len(X_test),
+            'fraud_rate': round(float(y.mean()), 4),
+            'trained_at': datetime.now().isoformat(),
+        }
         
         # Save model
         self._save_model()
@@ -265,7 +295,8 @@ class BlockchainFraudDetector:
         
         # Scale and predict
         X_scaled = self.scaler.transform(X)
-        fraud_probs = self.model.predict_proba(X_scaled)[:, 1]
+        proba = self.model.predict_proba(X_scaled)
+        fraud_probs = proba[:, 1] if proba.shape[1] >= 2 else proba[:, 0]
         fraud_flags = (fraud_probs >= threshold).astype(int)
         
         # Create results DataFrame
@@ -320,12 +351,13 @@ class BlockchainFraudDetector:
         return results
     
     def _save_model(self):
-        """Save model to disk"""
-        with open(self.model_path, 'wb') as f:
-            pickle.dump({
-                'model': self.model,
-                'scaler': self.scaler
-            }, f)
+        """Save model to disk using joblib (safer than pickle)"""
+        payload = {
+            'model': self.model,
+            'scaler': self.scaler,
+            'metrics': getattr(self, 'metrics', {}),
+        }
+        joblib.dump(payload, self.model_path)
         logger.info(f"✅ Model saved to {self.model_path}")
     
 

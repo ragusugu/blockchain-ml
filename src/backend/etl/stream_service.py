@@ -4,6 +4,7 @@ Runs independently from batch ETL processing
 Start this separately or in a different container
 """
 import logging
+import sys
 import time
 import signal
 from typing import Dict, Any

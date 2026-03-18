@@ -46,7 +46,7 @@ const TransactionTable = React.memo(function TransactionTable({ transactions, lo
   
   // Memoize color functions to avoid recalculation
   const getFraudRiskColor = useMemo(() => (risk) => {
-    switch (risk.toUpperCase()) {
+    switch ((risk || '').toUpperCase()) {
       case 'LOW':
         return '#10b981'
       case 'MEDIUM':
@@ -61,7 +61,7 @@ const TransactionTable = React.memo(function TransactionTable({ transactions, lo
   }, [])
 
   const getFraudRiskBg = useMemo(() => (risk) => {
-    switch (risk.toUpperCase()) {
+    switch ((risk || '').toUpperCase()) {
       case 'LOW':
         return 'rgba(16, 185, 129, 0.15)'
       case 'MEDIUM':
@@ -167,9 +167,9 @@ const TransactionTable = React.memo(function TransactionTable({ transactions, lo
                           cursor: 'pointer',
                           '&:hover': { color: '#818cf8' },
                         }}
-                        title={tx.hash}
+                        title={tx.hash || ''}
                       >
-                        {tx.hash?.substring(0, 8)}...
+                        {(tx.hash || 'N/A').substring(0, 8)}...
                       </Typography>
                       <Tooltip title={copiedHash === tx.hash ? 'Copied!' : 'Copy hash'}>
                         <IconButton
@@ -201,7 +201,7 @@ const TransactionTable = React.memo(function TransactionTable({ transactions, lo
                       color: '#6366f1',
                     }}
                   >
-                    {tx.from_address.substring(0, 10)}...
+                    {(tx.from_address || '').substring(0, 10)}...
                   </TableCell>
                   <TableCell
                     sx={{
@@ -210,7 +210,7 @@ const TransactionTable = React.memo(function TransactionTable({ transactions, lo
                       color: '#6366f1',
                     }}
                   >
-                    {tx.to_address ? tx.to_address.substring(0, 10) + '...' : '-'}
+                    {tx.to_address ? tx.to_address.substring(0, 10) + '...' : 'Contract Creation'}
                   </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600 }}>
                     {tx.value ? parseFloat(tx.value).toFixed(4) : '0'}
@@ -234,11 +234,11 @@ const TransactionTable = React.memo(function TransactionTable({ transactions, lo
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={tx.fraud_risk}
+                      label={tx.fraud_risk || 'UNKNOWN'}
                       size="small"
                       sx={{
-                        background: getFraudRiskBg(tx.fraud_risk),
-                        color: getFraudRiskColor(tx.fraud_risk),
+                        background: getFraudRiskBg(tx.fraud_risk || 'UNKNOWN'),
+                        color: getFraudRiskColor(tx.fraud_risk || 'UNKNOWN'),
                         fontWeight: 600,
                       }}
                     />

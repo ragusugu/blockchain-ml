@@ -73,14 +73,14 @@ function Header({ stats, processingMode, onModeChange }) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Wifi size={18} />
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {stats?.latest_block ? `Block: ${stats.latest_block}` : 'Connecting...'}
+              {stats?.connected ? `Block: ${stats.latest_block}` : stats ? '⛔ Disconnected' : '⏳ Connecting...'}
             </Typography>
           </Box>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Zap size={18} />
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {gasText ? `${gasText} Gwei` : 'Loading...'}
+              {stats?.connected ? `${gasText} Gwei` : stats ? 'N/A' : '⏳ Loading...'}
             </Typography>
           </Box>
 

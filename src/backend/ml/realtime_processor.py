@@ -6,6 +6,7 @@ Performance: ~1000 tx/sec on modern hardware
 """
 import json
 import logging
+import os
 import time
 import pandas as pd
 from datetime import datetime
@@ -53,7 +54,6 @@ class RealtimeBlockchainProcessor:
         self.last_block = self.w3.eth.block_number
         logger.info(f"✅ Connected — block: {self.last_block}, polling: {POLLING_INTERVAL}s, workers: {MAX_WORKERS}")
         return True
-        return False
     
     def process_realtime(self, continuous=True, interval=None):
         """

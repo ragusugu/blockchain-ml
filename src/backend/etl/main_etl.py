@@ -149,7 +149,7 @@ class BlockchainETL:
     
     def load_phase(self, df, batch_size=1000):
         """
-        Load phase: Insert data into database with optimized batching
+        Load phase: Insert data into database with conflict handling
         
         Args:
             df: DataFrame to load
@@ -163,16 +163,36 @@ class BlockchainETL:
             load_start = time.time()
             logger.info(f"LOAD: Inserting {len(df)} rows (batch size: {batch_size})")
             
-            # Batch insert for better performance
+            # Use ON CONFLICT DO NOTHING to handle duplicate tx_hash gracefully
+            from sqlalchemy import text as sa_text
+            
+            cols = list(df.columns)
             rows_inserted = 0
+            
             for i in range(0, len(df), batch_size):
                 batch = df.iloc[i:i+batch_size]
-                batch.to_sql('transaction_receipts', self.engine, if_exists='append', index=False)
-                rows_inserted += len(batch)
+                records = batch.to_dict('records')
+                
+                if not records:
+                    continue
+                
+                placeholders = ', '.join([f":{c}" for c in cols])
+                col_names = ', '.join(cols)
+                query = sa_text(f"""
+                    INSERT INTO transaction_receipts ({col_names})
+                    VALUES ({placeholders})
+                    ON CONFLICT (tx_hash) DO NOTHING
+                """)
+                
+                with self.engine.connect() as conn:
+                    result = conn.execute(query, records)
+                    conn.commit()
+                    rows_inserted += result.rowcount
+                
                 logger.debug(f"LOAD: Inserted batch {i//batch_size + 1}/{(len(df)-1)//batch_size + 1}")
             
             elapsed = time.time() - load_start
-            logger.info(f"✅ LOAD: Successfully inserted {rows_inserted} rows in {elapsed:.2f}s")
+            logger.info(f"✅ LOAD: Successfully inserted {rows_inserted} rows in {elapsed:.2f}s (dupes skipped)")
             return rows_inserted
         except Exception as e:
             logger.error(f"LOAD failed: {e}")

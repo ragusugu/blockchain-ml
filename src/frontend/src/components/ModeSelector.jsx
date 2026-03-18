@@ -140,7 +140,6 @@ function ModeSelector({ onSelectMode }) {
             return (
               <Grid item xs={12} md={6} key={mode.id}>
                 <MotionCard
-                  component={motion.div}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5, delay: idx * 0.2 }}

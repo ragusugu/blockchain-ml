@@ -10,13 +10,15 @@ class _Config:
     """Application configuration loaded from environment variables."""
 
     # ── RPC Endpoints ──────────────────────────────────────────────
-    RPC_URL: str = os.getenv('RPC_URL', 'https://rpc.drpc.org')
+    RPC_URL: str = os.getenv('RPC_URL', 'https://ethereum.publicnode.com')
     ANKR_RPC_URL: str = os.getenv('ANKR_RPC_URL', 'https://rpc.ankr.com/eth')
 
     RPC_FALLBACK_URLS: list = [
-        "https://rpc.drpc.org",
-        "https://cloudflare-eth.com",
         "https://ethereum.publicnode.com",
+        "https://eth-mainnet.public.blastapi.io",
+        "https://cloudflare-eth.com",
+        "https://rpc.ankr.com/eth",
+        "https://1rpc.io/eth",
     ]
 
     RPC_TIMEOUT: int = int(os.getenv('RPC_TIMEOUT', '20'))
@@ -66,6 +68,16 @@ class _Config:
         urls = [u.strip() for u in self.RPC_URL.split(',') if u.strip()]
         return urls or self.RPC_FALLBACK_URLS
 
+    def _check_db_credentials(self) -> None:
+        """Warn if default database credentials are in use."""
+        import warnings
+        if 'change-me-to-secure-password' in self.DATABASE_URL:
+            warnings.warn(
+                "Using default database password. Set DATABASE_URL env var with secure credentials.",
+                stacklevel=2,
+            )
+
 
 # Singleton instance — import this everywhere
 cfg = _Config()
+cfg._check_db_credentials()

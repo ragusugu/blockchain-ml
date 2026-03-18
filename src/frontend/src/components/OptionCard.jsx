@@ -14,7 +14,6 @@ function OptionCard({ option, isSelected, onSelect }) {
   return (
     <MotionCard
       onClick={onSelect}
-      component={motion.div}
       whileHover={{ scale: 1.02, y: -3 }}
       whileTap={{ scale: 0.98 }}
       sx={{

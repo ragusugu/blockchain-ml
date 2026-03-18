@@ -20,8 +20,8 @@ FROM nginx:alpine
 
 WORKDIR /usr/share/nginx/html
 
-# Copy built app (static folder is pre-built in the repo)
-COPY src/static /usr/share/nginx/html
+# Copy built app from Vite build output
+COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
 # Copy nginx configuration
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf

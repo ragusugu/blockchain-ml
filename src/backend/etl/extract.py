@@ -4,18 +4,21 @@ Converts blockchain data into flat rows for processing
 Optimized for parallel RPC calls, batch processing, and caching
 """
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 import time
 import hashlib
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
 # Performance tracking
 _request_times = []
 
-# Cache for block data (prevents redundant RPC calls)
-_block_cache = {}
+# Thread-safe cache for block data (TTL=300s, max 200 blocks)
+_block_cache = TTLCache(maxsize=200, ttl=300)
+_cache_lock = threading.Lock()
 
 
 def extract_block(block_number, w3):
@@ -29,11 +32,12 @@ def extract_block(block_number, w3):
     Returns:
         List of dictionaries with transaction data
     """
-    # Check cache first
+    # Check cache first (thread-safe)
     cache_key = f"block_{block_number}"
-    if cache_key in _block_cache:
-        logger.debug(f"Using cached data for block {block_number}")
-        return _block_cache[cache_key]
+    with _cache_lock:
+        if cache_key in _block_cache:
+            logger.debug(f"Using cached data for block {block_number}")
+            return _block_cache[cache_key]
     
     try:
         block = w3.eth.get_block(block_number, full_transactions=True)
@@ -67,10 +71,9 @@ def extract_block(block_number, w3):
 
         logger.info(f"Extracted {len(rows)} transactions from block {block_number}")
         
-        # Cache the result (limit cache size to 100 blocks)
-        while len(_block_cache) >= 100:
-            _block_cache.pop(next(iter(_block_cache)))  # Remove oldest
-        _block_cache[cache_key] = rows
+        # Cache the result (thread-safe, TTL auto-evicts)
+        with _cache_lock:
+            _block_cache[cache_key] = rows
         
         return rows
 
