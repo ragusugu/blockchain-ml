@@ -53,14 +53,28 @@ class BlockchainFraudDetector:
     def load_or_create_model(self):
         """Load existing model or create new one (supports both joblib and legacy pickle)"""
         if os.path.exists(self.model_path):
+            if os.path.getsize(self.model_path) == 0:
+                logger.warning(f"Model file {self.model_path} is empty. Train a model first with train_model()")
+                return False
+
             logger.info(f"Loading model from {self.model_path}")
             try:
                 saved = joblib.load(self.model_path)
-            except Exception:
+            except Exception as joblib_error:
                 # Fallback for legacy pickle files
                 import pickle
-                with open(self.model_path, 'rb') as f:
-                    saved = pickle.load(f)
+                try:
+                    with open(self.model_path, 'rb') as f:
+                        saved = pickle.load(f)
+                except Exception as pickle_error:
+                    logger.warning(
+                        "Could not load model from %s using joblib (%s) or pickle (%s). "
+                        "Train a model first with train_model().",
+                        self.model_path,
+                        joblib_error,
+                        pickle_error,
+                    )
+                    return False
                 logger.info("Loaded legacy pickle model — will re-save as joblib")
                 self.model = saved['model']
                 self.scaler = saved['scaler']

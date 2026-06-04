@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Colors
 GREEN='\033[0;32m'
@@ -6,6 +7,10 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+K8S_DIR="$PROJECT_ROOT/k8s"
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Kubernetes (Kind) Deployment        ║${NC}"
@@ -78,15 +83,10 @@ fi
 # Build Docker images
 echo -e "${BLUE}🔨 Building Docker images for Kubernetes...${NC}\n"
 
-docker build -f Dockerfile.backend -t blockchain-ml-backend:latest .
-docker build -f Dockerfile.frontend -t blockchain-ml-frontend:latest ./src/frontend
-docker build -f Dockerfile.worker -t blockchain-ml-worker:latest .
-docker build -f Dockerfile.scheduler -t blockchain-ml-scheduler:latest .
-
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ Build failed${NC}"
-    exit 1
-fi
+docker build -f "$PROJECT_ROOT/docker/Dockerfile.backend" -t blockchain-ml-backend:latest "$PROJECT_ROOT"
+docker build -f "$PROJECT_ROOT/docker/Dockerfile.frontend" -t blockchain-ml-frontend:latest "$PROJECT_ROOT"
+docker build -f "$PROJECT_ROOT/docker/Dockerfile.worker" -t blockchain-ml-worker:latest "$PROJECT_ROOT"
+docker build -f "$PROJECT_ROOT/docker/Dockerfile.scheduler" -t blockchain-ml-scheduler:latest "$PROJECT_ROOT"
 
 echo -e "${GREEN}✅ Images built${NC}\n"
 
@@ -101,41 +101,69 @@ kind load docker-image blockchain-ml-scheduler:latest --name $CLUSTER_NAME
 echo -e "${GREEN}✅ Images loaded${NC}\n"
 
 # Create .env file if needed (for secrets)
-if [ ! -f .env ]; then
+if [ ! -f "$PROJECT_ROOT/.env" ]; then
     echo -e "${YELLOW}📝 Creating .env file...${NC}"
-    cat > .env << 'EOF'
+    cat > "$PROJECT_ROOT/.env" << 'EOF'
 POSTGRES_PASSWORD=change_me_to_secure_password
+POSTGRES_DB=blockchain_db
+POSTGRES_USER=blockchain_user
 RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY
+BATCH_SIZE=10
+ETL_SCHEDULE_HOUR=0
+ETL_SCHEDULE_MINUTE=0
 EOF
     echo -e "${GREEN}✅ .env created - please update with your values${NC}\n"
 fi
 
-# Update secrets with values from .env
-echo -e "${BLUE}🔐 Updating Kubernetes secrets...${NC}"
-
-# Source .env
-if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
+# Source .env without mutating tracked Kubernetes manifests
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$PROJECT_ROOT/.env"
+    set +a
 fi
-
-# Update secrets YAML
-sed -i "s|change-me-to-secure-password|${POSTGRES_PASSWORD:-change_me_to_secure_password}|g" k8s/03-secrets.yaml
-sed -i "s|YOUR_KEY|${RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY}|g" k8s/02-configmap.yaml
-
-echo -e "${GREEN}✅ Secrets updated${NC}\n"
 
 # Deploy to Kubernetes
 echo -e "${BLUE}🚀 Deploying to Kubernetes...${NC}\n"
 
-kubectl apply -f k8s/01-namespace.yaml
-kubectl apply -f k8s/02-configmap.yaml
-kubectl apply -f k8s/03-secrets.yaml
-kubectl apply -f k8s/04-storage.yaml
-kubectl apply -f k8s/05-postgres-statefulset.yaml
-kubectl apply -f k8s/06-backend-deployment.yaml
-kubectl apply -f k8s/07-frontend-deployment.yaml
-kubectl apply -f k8s/08-worker-deployment.yaml
-kubectl apply -f k8s/09-scheduler-cronjob.yaml
+POSTGRES_DB="${POSTGRES_DB:-blockchain_db}"
+POSTGRES_USER="${POSTGRES_USER:-blockchain_user}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-change_me_to_secure_password}"
+RPC_URL="${RPC_URL:-https://ethereum.publicnode.com}"
+BATCH_SIZE="${BATCH_SIZE:-10}"
+ETL_SCHEDULE_HOUR="${ETL_SCHEDULE_HOUR:-0}"
+ETL_SCHEDULE_MINUTE="${ETL_SCHEDULE_MINUTE:-0}"
+DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+
+kubectl apply -f "$K8S_DIR/01-namespace.yaml"
+
+echo -e "${BLUE}🔐 Applying generated ConfigMap and Secret...${NC}"
+kubectl -n blockchain-ml create configmap blockchain-config \
+    --from-literal=RPC_URL="$RPC_URL" \
+    --from-literal=BATCH_SIZE="$BATCH_SIZE" \
+    --from-literal=ETL_SCHEDULE_HOUR="$ETL_SCHEDULE_HOUR" \
+    --from-literal=ETL_SCHEDULE_MINUTE="$ETL_SCHEDULE_MINUTE" \
+    --from-literal=FLASK_ENV=production \
+    --from-literal=NODE_ENV=production \
+    --from-literal=REACT_APP_API_URL=http://backend:5000 \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n blockchain-ml create secret generic db-credentials \
+    --from-literal=POSTGRES_USER="$POSTGRES_USER" \
+    --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+    --from-literal=DATABASE_URL="$DATABASE_URL" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl apply -f "$K8S_DIR/04-storage.yaml"
+kubectl apply -f "$K8S_DIR/05-postgres-statefulset.yaml"
+kubectl apply -f "$K8S_DIR/06-backend-deployment.yaml"
+kubectl apply -f "$K8S_DIR/07-frontend-deployment.yaml"
+kubectl apply -f "$K8S_DIR/08-worker-deployment.yaml"
+kubectl apply -f "$K8S_DIR/09-scheduler-cronjob.yaml"
+kubectl apply -f "$K8S_DIR/10-ingress.yaml"
+
+kubectl -n blockchain-ml patch cronjob etl-scheduler --type merge \
+    -p "{\"spec\":{\"schedule\":\"${ETL_SCHEDULE_MINUTE} ${ETL_SCHEDULE_HOUR} * * *\"}}"
 
 echo -e "${GREEN}✅ Kubernetes manifests applied${NC}\n"
 

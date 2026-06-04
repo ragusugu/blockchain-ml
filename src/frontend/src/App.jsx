@@ -93,14 +93,28 @@ function App() {
     sessionStorage.setItem('blockCount', blockCount.toString())
   }, [blockCount])
 
+  const parseModelMetric = (value, { percent = false } = {}) => {
+    if (value == null || value === 'N/A') return null
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      const parsed = Number.parseFloat(trimmed.replace('%', ''))
+      if (!Number.isFinite(parsed)) return null
+      return percent || trimmed.endsWith('%') ? parsed / 100 : parsed
+    }
+    return null
+  }
+
   // Fetch real model metrics
   const fetchModelMetrics = async () => {
     try {
       const response = await axios.get('/api/model-info')
       if (response.data && response.data.status !== 'Not loaded') {
+        const rawAccuracy = response.data.accuracy ?? response.data.metrics?.accuracy
+        const rawRocAuc = response.data.roc_auc ?? response.data.metrics?.roc_auc
         setModelMetrics({
-          accuracy: response.data.accuracy ?? response.data.metrics?.accuracy,
-          roc_auc: response.data.roc_auc ?? response.data.metrics?.roc_auc,
+          accuracy: parseModelMetric(rawAccuracy, { percent: typeof rawAccuracy === 'string' && rawAccuracy.includes('%') }),
+          roc_auc: parseModelMetric(rawRocAuc),
         })
       }
     } catch (err) {

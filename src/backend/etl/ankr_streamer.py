@@ -14,6 +14,7 @@ from collections import defaultdict
 
 from config import cfg
 from etl.transform import transform_data
+from etl.storage import persist_transformed_transactions
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class AnkrBlockchainStreamer:
         self.stats = {
             'blocks_streamed': 0,
             'transactions_streamed': 0,
+            'transactions_persisted': 0,
             'start_time': None,
             'last_update': None,
             'errors': 0
@@ -144,13 +146,14 @@ class AnkrBlockchainStreamer:
             self.stats['transactions_streamed'] += block_data['transaction_count']
             self.stats['last_update'] = datetime.now().isoformat()
             
-            # Add to buffer
+            should_flush = False
             with self.buffer_lock:
                 self.block_buffer.append(block_data)
-                
-                # If buffer is full, process it
-                if len(self.block_buffer) >= BATCH_SIZE:
-                    self._flush_buffer()
+                should_flush = len(self.block_buffer) >= BATCH_SIZE
+
+            # Flush outside the buffer lock because DB writes can be slow.
+            if should_flush:
+                self._flush_buffer()
             
             # Call user callback if provided
             if self.callback:
@@ -162,24 +165,26 @@ class AnkrBlockchainStreamer:
     
     def _flush_buffer(self) -> None:
         """Flush buffered blocks"""
-        if not self.block_buffer:
-            return
-            
-        try:
+        with self.buffer_lock:
+            if not self.block_buffer:
+                return
             batch = self.block_buffer.copy()
+            self.block_buffer.clear()
+
+        try:
             logger.info(f"📦 Flushing {len(batch)} blocks to storage")
             
             # Flatten block-level data into transaction-level rows
             # transform_data() expects a list of transaction dicts, not block dicts
             tx_rows = []
             for block_data in batch:
-                for tx in block_data.get('transactions', []):
+                for tx_index, tx in enumerate(block_data.get('transactions', [])):
                     tx_rows.append({
                         'block_number': block_data['block_number'],
                         'block_hash': block_data.get('block_hash'),
                         'timestamp': block_data.get('timestamp'),
                         'tx_hash': tx.get('hash'),
-                        'transaction_index': 0,
+                        'transaction_index': tx_index,
                         'from_address': tx.get('from'),
                         'to_address': tx.get('to'),
                         'value_eth': tx.get('value', 0),
@@ -194,9 +199,13 @@ class AnkrBlockchainStreamer:
             
             if tx_rows:
                 transformed_data = transform_data(tx_rows)
-                logger.debug(f"Transformed {len(transformed_data)} transactions")
-            
-            self.block_buffer.clear()
+                persisted = persist_transformed_transactions(transformed_data)
+                self.stats['transactions_persisted'] += persisted
+                logger.info(
+                    "Transformed %s streamed transaction(s); persisted %s",
+                    len(transformed_data),
+                    persisted,
+                )
             
         except Exception as e:
             logger.error(f"Error flushing buffer: {e}")

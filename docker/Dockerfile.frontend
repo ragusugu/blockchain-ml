@@ -10,9 +10,9 @@ COPY src/frontend/package*.json ./
 RUN npm ci
 
 # Copy source code
-COPY src/frontend . 
+COPY src/frontend .
 
-# Build production bundle (outputs to ./build)
+# Build production bundle (outputs to ./dist)
 RUN npm run build
 
 # Production stage - serve with nginx

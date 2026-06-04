@@ -8,7 +8,9 @@ import json
 import logging
 import sys
 import time
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import pandas as pd
@@ -52,25 +54,8 @@ performance_metrics = {
     'last_request_time': 0.0,
 }
 
-# Simple in-memory job store with TTL cleanup
-jobs = {}
 JOB_TTL_SECONDS = 600  # Clean up completed jobs after 10 minutes
-
-def _cleanup_old_jobs():
-    """Remove completed/errored jobs older than JOB_TTL_SECONDS"""
-    now = datetime.now()
-    to_delete = []
-    for job_id, job in jobs.items():
-        completed_at = job.get('completed_at')
-        if completed_at:
-            try:
-                completed_time = datetime.fromisoformat(completed_at)
-                if (now - completed_time).total_seconds() > JOB_TTL_SECONDS:
-                    to_delete.append(job_id)
-            except (ValueError, TypeError):
-                pass
-    for job_id in to_delete:
-        del jobs[job_id]
+JOB_STORE_DIR = cfg.JOB_STORE_DIR or os.path.join(tempfile.gettempdir(), 'blockchain-ml-jobs')
 
 # Initialize cleanup manager
 cleanup_manager = DiskCleanupManager(threshold_percent=20)
@@ -100,7 +85,7 @@ streaming_initialized = False
 # Try to import psycopg2 for PostgreSQL access
 try:
     import psycopg2
-    from psycopg2.extras import RealDictCursor
+    from psycopg2.extras import Json, RealDictCursor
     from psycopg2 import pool
     HAS_POSTGRES = True
 except ImportError:
@@ -109,6 +94,224 @@ except ImportError:
 
 # Connection pool for better performance
 db_pool = None
+
+
+def _json_safe(value):
+    """Recursively convert pandas/numpy/datetime values into JSON-safe values."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.isoformat()
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return float(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
+class JobStore:
+    """PostgreSQL-backed async job store with filesystem fallback for local dev."""
+
+    def __init__(self, directory, ttl_seconds):
+        self.directory = Path(directory)
+        self.ttl_seconds = ttl_seconds
+        self.lock = Lock()
+        self.db_ready = False
+        self.directory.mkdir(parents=True, exist_ok=True)
+
+    def _normalize_job_id(self, job_id):
+        try:
+            return str(uuid.UUID(str(job_id)))
+        except (ValueError, TypeError):
+            return None
+
+    def _job_file(self, job_id):
+        safe_id = self._normalize_job_id(job_id)
+        if not safe_id:
+            return None
+        return self.directory / f"{safe_id}.json"
+
+    def _ensure_db_table(self):
+        if not HAS_POSTGRES:
+            return False
+        if self.db_ready:
+            return True
+
+        conn = get_postgres_connection()
+        if not conn:
+            return False
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS api_jobs (
+                        job_id VARCHAR(36) PRIMARY KEY,
+                        status VARCHAR(32) NOT NULL,
+                        payload JSONB NOT NULL,
+                        started_at TIMESTAMP NULL,
+                        completed_at TIMESTAMP NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.commit()
+            self.db_ready = True
+            return True
+        except Exception as exc:
+            logger.warning("Could not initialize API job table: %s", exc)
+            return False
+        finally:
+            release_postgres_connection(conn)
+
+    def _set_db(self, job_id, job):
+        if not self._ensure_db_table():
+            return False
+
+        conn = get_postgres_connection()
+        if not conn:
+            return False
+
+        payload = _json_safe(job)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO api_jobs (job_id, status, payload, started_at, completed_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (job_id) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        payload = EXCLUDED.payload,
+                        completed_at = EXCLUDED.completed_at,
+                        updated_at = NOW()
+                """, (
+                    job_id,
+                    payload.get('status', 'processing'),
+                    Json(payload),
+                    payload.get('started_at'),
+                    payload.get('completed_at'),
+                ))
+                conn.commit()
+            return True
+        except Exception as exc:
+            logger.warning("Could not write API job %s to PostgreSQL: %s", job_id, exc)
+            return False
+        finally:
+            release_postgres_connection(conn)
+
+    def _get_db(self, job_id):
+        if not self._ensure_db_table():
+            return None
+
+        conn = get_postgres_connection()
+        if not conn:
+            return None
+
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT payload FROM api_jobs WHERE job_id = %s", (job_id,))
+                row = cur.fetchone()
+            return row['payload'] if row else None
+        except Exception as exc:
+            logger.warning("Could not read API job %s from PostgreSQL: %s", job_id, exc)
+            return None
+        finally:
+            release_postgres_connection(conn)
+
+    def _cleanup_db(self):
+        if not self._ensure_db_table():
+            return
+
+        conn = get_postgres_connection()
+        if not conn:
+            return
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM api_jobs
+                    WHERE status IN ('complete', 'error')
+                      AND completed_at IS NOT NULL
+                      AND completed_at < NOW() - make_interval(secs => %s)
+                """, (self.ttl_seconds,))
+                conn.commit()
+        except Exception as exc:
+            logger.warning("Could not clean API jobs from PostgreSQL: %s", exc)
+        finally:
+            release_postgres_connection(conn)
+
+    def _set_file(self, job_id, job):
+        path = self._job_file(job_id)
+        if not path:
+            return False
+        payload = _json_safe(job)
+        tmp_path = path.with_suffix(f".{os.getpid()}.tmp")
+        with self.lock:
+            with tmp_path.open('w') as fh:
+                json.dump(payload, fh)
+            tmp_path.replace(path)
+        return True
+
+    def _get_file(self, job_id):
+        path = self._job_file(job_id)
+        if not path or not path.exists():
+            return None
+        try:
+            with path.open() as fh:
+                return json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read API job file %s: %s", path, exc)
+            return None
+
+    def _cleanup_files(self):
+        now = datetime.now()
+        for path in self.directory.glob("*.json"):
+            job = self._get_file(path.stem)
+            if not job or job.get('status') not in ('complete', 'error'):
+                continue
+            try:
+                completed_time = datetime.fromisoformat(job.get('completed_at'))
+            except (TypeError, ValueError):
+                continue
+            if (now - completed_time).total_seconds() > self.ttl_seconds:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+
+    def set(self, job_id, job):
+        job_id = self._normalize_job_id(job_id)
+        if not job_id:
+            return False
+        if self._set_db(job_id, job):
+            return True
+        return self._set_file(job_id, job)
+
+    def get(self, job_id):
+        job_id = self._normalize_job_id(job_id)
+        if not job_id:
+            return None
+        return self._get_db(job_id) or self._get_file(job_id)
+
+    def cleanup(self):
+        self._cleanup_db()
+        self._cleanup_files()
+
+
+jobs = JobStore(JOB_STORE_DIR, JOB_TTL_SECONDS)
+
+
+def _cleanup_old_jobs():
+    """Remove completed/errored jobs older than JOB_TTL_SECONDS"""
+    jobs.cleanup()
 
 
 def initialize():
@@ -369,17 +572,31 @@ def start_transactions_job():
     block_count = max(1, min(requested_blocks, MAX_BLOCKS_PER_REQUEST))
 
     job_id = str(uuid.uuid4())
-    jobs[job_id] = {'status': 'processing', 'started_at': datetime.now().isoformat()}
+    jobs.set(job_id, {
+        'status': 'processing',
+        'started_at': datetime.now().isoformat(),
+        'mode': mode,
+        'option': option,
+        'block_count': block_count,
+    })
 
     def run_job():
         try:
             result = _process_transactions_core(mode, option, block_count)
-            jobs[job_id] = {'status': 'complete', 'result': result, 'completed_at': datetime.now().isoformat()}
+            jobs.set(job_id, {
+                'status': 'complete',
+                'result': result,
+                'completed_at': datetime.now().isoformat(),
+            })
         except Exception as e:
-            jobs[job_id] = {'status': 'error', 'error': str(e), 'completed_at': datetime.now().isoformat()}
+            jobs.set(job_id, {
+                'status': 'error',
+                'error': str(e),
+                'completed_at': datetime.now().isoformat(),
+            })
 
     Thread(target=run_job, daemon=True).start()
-    return jsonify({'status': 'processing', 'job_id': job_id})
+    return jsonify({'status': 'processing', 'job_id': job_id, 'job_ttl_seconds': JOB_TTL_SECONDS})
 
 
 @app.route('/api/transactions/job/<job_id>', methods=['GET'])
@@ -897,19 +1114,24 @@ def get_model_info():
     try:
         if etl_ai and etl_ai.detector.model:
             metrics = getattr(etl_ai.detector, 'metrics', {})
+            accuracy = metrics.get('accuracy')
+            roc_auc = metrics.get('roc_auc')
             info = {
                 'model_type': 'RandomForest',
                 'status': 'Loaded ✅',
                 'features': etl_ai.detector.feature_names,
-                'accuracy': f"{metrics.get('accuracy', 0) * 100:.1f}%" if metrics.get('accuracy') else 'N/A',
-                'roc_auc': f"{metrics.get('roc_auc', 0):.3f}" if metrics.get('roc_auc') else 'N/A',
+                'accuracy': accuracy,
+                'roc_auc': roc_auc,
+                'accuracy_display': f"{accuracy * 100:.1f}%" if accuracy is not None else 'N/A',
+                'roc_auc_display': f"{roc_auc:.3f}" if roc_auc is not None else 'N/A',
+                'metrics': metrics,
                 'train_samples': metrics.get('train_samples', 'N/A'),
                 'trained_at': metrics.get('trained_at', 'N/A'),
             }
         else:
             info = {
                 'status': 'Not loaded',
-                'message': 'Train model first: python src/train_ai_model.py'
+                'message': 'Train model first: python src/backend/ml/train_ai_model.py'
             }
         
         return jsonify(info)

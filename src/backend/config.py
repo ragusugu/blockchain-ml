@@ -50,6 +50,7 @@ class _Config:
     # ── API / Dashboard ───────────────────────────────────────────
     MAX_BLOCKS_PER_REQUEST: int = int(os.getenv('MAX_BLOCKS_PER_REQUEST', '1'))
     STORE_BATCH_RESULTS: bool = os.getenv('STORE_BATCH_RESULTS', 'true').lower() == 'true'
+    JOB_STORE_DIR: str = os.getenv('JOB_STORE_DIR', '/tmp/blockchain-ml-jobs')
 
     # ── Output ────────────────────────────────────────────────────
     OUTPUT_MODE: str = os.getenv('OUTPUT_MODE', 'console')

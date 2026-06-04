@@ -4,7 +4,7 @@ metadata:
   name: etl-scheduler
   namespace: blockchain-ml
 spec:
-  schedule: "0 * * * *"  # Run every hour
+  schedule: "0 0 * * *"  # Default daily run; deploy-kubernetes.sh patches from ETL_SCHEDULE_*.
   jobTemplate:
     spec:
       backoffLimit: 3

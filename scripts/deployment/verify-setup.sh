@@ -1,5 +1,9 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # Verification script to check if all Docker + K8s files are created
 
 echo ""
@@ -13,7 +17,7 @@ found=0
 
 # Check Dockerfiles
 echo "📦 Checking Dockerfiles..."
-for file in Dockerfile.backend Dockerfile.frontend Dockerfile.worker Dockerfile.scheduler; do
+for file in docker/Dockerfile.backend docker/Dockerfile.frontend docker/Dockerfile.worker docker/Dockerfile.scheduler; do
     if [ -f "$file" ]; then
         echo "  ✅ $file"
         ((found++))
@@ -26,8 +30,8 @@ echo ""
 
 # Check docker-compose
 echo "🐳 Checking Docker Compose..."
-if [ -f "docker-compose.yml" ]; then
-    echo "  ✅ docker-compose.yml"
+if [ -f "docker/docker-compose.yml" ]; then
+    echo "  ✅ docker/docker-compose.yml"
     ((found++))
 else
     echo "  ❌ docker-compose.yml"
@@ -85,9 +89,9 @@ echo ""
 # Check documentation
 echo "📚 Checking Documentation..."
 docs=(
-    "DEPLOYMENT_GUIDE.md"
-    "DOCKER_KUBERNETES_SETUP.md"
-    "SETUP_COMPLETE.md"
+    "documentation/guides/DEPLOYMENT_GUIDE.md"
+    "docker/DOCKER_KUBERNETES_SETUP.md"
+    "documentation/README.md"
     ".env.example"
 )
 
@@ -118,7 +122,7 @@ if [ $missing -eq 0 ]; then
     echo "📖 Next steps:"
     echo "  1. Update .env file:  cp .env.example .env && nano .env"
     echo "  2. Deploy:            bash scripts/deployment/deploy.sh"
-    echo "  3. View logs:         docker-compose logs -f"
+    echo "  3. View logs:         cd docker && docker-compose logs -f"
     echo ""
     exit 0
 else
