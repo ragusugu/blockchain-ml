@@ -14,6 +14,10 @@ spec:
           - name: scheduler
             image: blockchain-ml-scheduler:latest
             imagePullPolicy: Never  # Use local image for development
+            command:
+            - python
+            - -c
+            - "from processing.scheduler import run_etl; raise SystemExit(0 if run_etl() else 1)"
             env:
             - name: DATABASE_URL
               valueFrom:

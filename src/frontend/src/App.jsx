@@ -47,7 +47,6 @@ axios.defaults.timeout = 120000
 import OptionCard from './components/OptionCard'
 import StatCard from './components/StatCard'
 import TransactionTable from './components/TransactionTable'
-import DetailModal from './components/DetailModal'
 import TransactionDetailsPanel from './components/TransactionDetailsPanel'
 import Header from './components/Header'
 import ModeSelector from './components/ModeSelector'

@@ -32,7 +32,8 @@ Last updated: 2026-06-04
 - `scripts/deployment/deploy.sh` is a menu wrapper around Docker/Kubernetes helpers.
 - `scripts/deployment/deploy-docker.sh`, `cleanup-docker.sh`, and `verify-setup.sh` now calculate the repo root and use the current `docker/` layout.
 - `scripts/deployment/deploy-kubernetes.sh` now builds all images from the repo root with Dockerfiles under `docker/`, applies generated ConfigMap/Secret resources without mutating tracked YAML, applies all current manifests, and patches the CronJob schedule from env values.
-- `scripts/deployment/complete-deployment.sh` syntax-checks successfully as of 2026-06-04, but it is broader/destructive and should still be reviewed before use.
+- `scripts/deployment/complete-deployment.sh` syntax-checks successfully as of 2026-06-04, supports `docker-compose` and `docker compose`, and uses a public no-key RPC default. It is broad/destructive and should still be reviewed before use.
+- Kubernetes CronJob overrides the scheduler image command to run one ETL pass via `processing.scheduler.run_etl()`; Docker Compose scheduler service still uses the blocking scheduler process.
 
 ## Frontend Build Alignment
 

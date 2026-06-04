@@ -105,8 +105,8 @@ nano .env
 POSTGRES_PASSWORD=your_secure_password    # Change from default!
 
 # RPC Options (choose one):
-# DEFAULT: eth.public-rpc.com (no key required) ← READY TO USE!
-RPC_URL=https://eth.public-rpc.com
+# DEFAULT: Ethereum Public Node (no key required) ← READY TO USE!
+RPC_URL=https://ethereum.publicnode.com
 
 # Or use other free options (no signup needed):
 # RPC_URL=https://ethereum.publicnode.com

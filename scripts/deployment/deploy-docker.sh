@@ -49,7 +49,7 @@ if [ ! -f .env ]; then
 POSTGRES_DB=blockchain_db
 POSTGRES_USER=blockchain_user
 POSTGRES_PASSWORD=change_me_to_secure_password
-RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY
+RPC_URL=https://ethereum.publicnode.com
 BATCH_SIZE=10
 ETL_SCHEDULE_HOUR=0
 ETL_SCHEDULE_MINUTE=0

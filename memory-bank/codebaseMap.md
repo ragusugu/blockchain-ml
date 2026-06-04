@@ -57,7 +57,10 @@ Last updated: 2026-06-04
 
 - `start.sh`: one-command local dev startup for Flask and Vite.
 - `scripts/start_react.sh`: frontend-only Vite startup.
-- `scripts/start_dashboard.sh`, `scripts/install.sh`, `scripts/realtime_start.sh`, `scripts/ai_start.sh`: older/pre-refactor helper scripts; verify before use.
+- `scripts/start_dashboard.sh`: wrapper around current `./start.sh`.
+- `scripts/install.sh`: current-layout install and import verification helper.
+- `scripts/realtime_start.sh`: current-layout real-time processor launcher.
+- `scripts/ai_start.sh`: current-layout AI model helper.
 - `scripts/setup_ankr_streaming.sh`: Ankr streaming setup/reference output.
 - `scripts/test_ankr_streaming.py`: live Ankr connectivity and streaming-manager test script.
 - `scripts/keep_ports_alive.sh`: restarts Kubernetes port-forward processes.
@@ -75,7 +78,7 @@ Last updated: 2026-06-04
 
 ## Docs And Metadata
 
-- `README.md`: main overview but contains stale `docs/...` links and some path drift.
+- `README.md`: main overview with current project structure and documentation links.
 - `IMPROVEMENT_PLAN.md`: older audit; some items already fixed, some still valid.
 - `roadmap.md`: broad architecture/roadmap; useful but some line counts and bug status may be stale.
 - `TODO.md`: MCP server task marked complete.

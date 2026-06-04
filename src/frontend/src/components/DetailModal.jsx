@@ -18,7 +18,7 @@ function DetailModal({ transaction, open, onClose }) {
   if (!transaction) return null
 
   const getFraudRiskColor = (risk) => {
-    switch (risk.toUpperCase()) {
+    switch ((risk || '').toUpperCase()) {
       case 'LOW':
         return '#10b981'
       case 'MEDIUM':
@@ -31,6 +31,28 @@ function DetailModal({ transaction, open, onClose }) {
         return '#cbd5e1'
     }
   }
+
+  const formatNumber = (value, digits = 4) => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed.toFixed(digits) : 'N/A'
+  }
+
+  const formatPercent = (value) => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? `${(parsed * 100).toFixed(1)}%` : 'N/A'
+  }
+
+  const formatTimestamp = (value) => {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return 'N/A'
+    const millis = parsed > 9999999999 ? parsed : parsed * 1000
+    return new Date(millis).toLocaleString()
+  }
+
+  const gasPrice = transaction.gas_price_gwei ?? transaction.gas_price
+  const fraudRisk = transaction.fraud_risk ?? transaction.risk_level ?? 'N/A'
+  const fraudProbability = transaction.fraud_probability ?? transaction.fraud_score
+  const timestamp = transaction.timestamp ?? transaction.block_timestamp
 
   return (
     <Modal
@@ -86,28 +108,28 @@ function DetailModal({ transaction, open, onClose }) {
               { label: 'Block Number', value: transaction.block_number },
               { label: 'From Address', value: transaction.from_address, mono: true },
               { label: 'To Address', value: transaction.to_address || '-', mono: true },
-              { label: 'Value (ETH)', value: parseFloat(transaction.value).toFixed(4) },
+              { label: 'Value (ETH)', value: formatNumber(transaction.value) },
               {
                 label: 'Gas Used',
                 value: transaction.gas_used || 'N/A',
               },
               {
                 label: 'Gas Price (Gwei)',
-                value: transaction.gas_price ? (transaction.gas_price / 1e9).toFixed(2) : 'N/A',
+                value: formatNumber(gasPrice, 2),
               },
               { label: 'Status', value: transaction.status },
               {
                 label: 'Fraud Risk',
-                value: transaction.fraud_risk,
+                value: fraudRisk,
                 chip: true,
               },
               {
-                label: 'Fraud Score',
-                value: `${(transaction.fraud_score * 100).toFixed(1)}%`,
+                label: 'Fraud Probability',
+                value: formatPercent(fraudProbability),
               },
               {
                 label: 'Timestamp',
-                value: new Date(transaction.timestamp * 1000).toLocaleString(),
+                value: formatTimestamp(timestamp),
               },
               {
                 label: 'Method',

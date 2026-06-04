@@ -47,6 +47,7 @@ PYTHON_SETUP=false
 DEPLOYMENT_TYPE="all"  # all, docker, k8s
 CLUSTER_NAME="blockchain-ml"
 NAMESPACE="blockchain-ml"
+COMPOSE_CMD=()
 
 ################################################################################
 # Utility Functions
@@ -95,11 +96,15 @@ check_prerequisites() {
     fi
     
     # Check Docker Compose
-    if ! command -v docker-compose &> /dev/null; then
+    if command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD=(docker-compose)
+        success "Docker Compose found: $(docker-compose --version)"
+    elif docker compose version &> /dev/null; then
+        COMPOSE_CMD=(docker compose)
+        success "Docker Compose plugin found: $(docker compose version)"
+    else
         error "Docker Compose is not installed"
         missing=$((missing + 1))
-    else
-        success "Docker Compose found: $(docker-compose --version)"
     fi
     
     # Check kubectl (for K8s)
@@ -292,7 +297,7 @@ POSTGRES_USER=blockchain_user
 POSTGRES_PASSWORD=change_me_to_secure_password
 
 # Blockchain RPC
-RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY
+RPC_URL=https://ethereum.publicnode.com
 
 # ETL Configuration
 BATCH_SIZE=10
@@ -308,7 +313,7 @@ FLASK_ENV=production
 EOF
         info ".env file created. Please update with your settings:"
         info "  - POSTGRES_PASSWORD: Secure password"
-        info "  - RPC_URL: Your Alchemy/Infura RPC URL"
+        info "  - RPC_URL: Public RPC or your provider URL"
     fi
     
     success ".env file ready"
@@ -324,7 +329,7 @@ build_docker_images() {
     
     if [ -f "docker-compose.yml" ]; then
         info "Using docker-compose build..."
-        docker-compose build --no-cache 2>&1 | tee -a "$LOG_FILE"
+        "${COMPOSE_CMD[@]}" build --no-cache 2>&1 | tee -a "$LOG_FILE"
     else
         # Build individual Dockerfiles
         for dockerfile in Dockerfile.*; do
@@ -351,10 +356,10 @@ deploy_docker_compose() {
     cd "$DOCKER_DIR"
     
     info "Pulling base images..."
-    docker-compose pull 2>&1 | tee -a "$LOG_FILE"
+    "${COMPOSE_CMD[@]}" pull 2>&1 | tee -a "$LOG_FILE"
     
     info "Starting services..."
-    docker-compose up -d 2>&1 | tee -a "$LOG_FILE"
+    "${COMPOSE_CMD[@]}" up -d 2>&1 | tee -a "$LOG_FILE"
     
     if [ $? -ne 0 ]; then
         error "Docker Compose deployment failed"
@@ -364,7 +369,7 @@ deploy_docker_compose() {
     # Wait for services to be healthy
     info "Waiting for services to be healthy..."
     for i in {1..30}; do
-        if docker-compose ps | grep -q "healthy"; then
+        if "${COMPOSE_CMD[@]}" ps | grep -q "healthy"; then
             success "Services are healthy"
             break
         fi
@@ -379,7 +384,7 @@ deploy_docker_compose() {
     
     # Show service info
     info "Running services:"
-    docker-compose ps 2>&1 | tee -a "$LOG_FILE"
+    "${COMPOSE_CMD[@]}" ps 2>&1 | tee -a "$LOG_FILE"
     echo ""
 }
 
@@ -475,7 +480,7 @@ update_env_files_for_k8s() {
     log "Updating .env files with K8s Postgres credentials..."
     separator
     
-    local K8S_DB_PASSWORD="change-me-to-secure-password"
+    local K8S_DB_PASSWORD="change_me_to_secure_password"
     local K8S_DB_USER="blockchain_user"
     local K8S_DB_NAME="blockchain_db"
     local K8S_RPC_URL="https://ethereum.publicnode.com"
@@ -533,7 +538,7 @@ verify_deployment() {
     
     if [[ "$DEPLOYMENT_TYPE" == "docker" ]] || [[ "$DEPLOYMENT_TYPE" == "all" ]]; then
         info "Docker services:"
-        docker-compose -f "$DOCKER_DIR/docker-compose.yml" ps 2>&1 | tee -a "$LOG_FILE"
+        "${COMPOSE_CMD[@]}" -f "$DOCKER_DIR/docker-compose.yml" ps 2>&1 | tee -a "$LOG_FILE"
         echo ""
     fi
     

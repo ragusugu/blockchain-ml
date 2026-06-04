@@ -1,75 +1,61 @@
 #!/bin/bash
-# Installation & Verification Script for Blockchain ETL Pipeline
+# Installation and verification script for the current blockchain-ml layout.
 
-set -e  # Exit on error
+set -e
 
-echo "🚀 Blockchain ETL Pipeline - Installation & Verification"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$PROJECT_ROOT"
+
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+echo "Blockchain ML - Installation & Verification"
 echo "=========================================================="
 echo ""
 
-# Step 1: Install dependencies
-echo "📦 Installing dependencies..."
-pip install -r config/requirements.txt
-echo "✓ Dependencies installed"
-echo ""
-
-# Step 2: Create .env file if it doesn't exist
-if [ ! -f config/.env ]; then
-    echo "📝 Creating .env file..."
-    cat > config/.env << 'EOF'
-DATABASE_URL=postgresql://blockchain_user:change-me-to-secure-password@127.0.0.1:5432/blockchain_db
-RPC_URL=https://eth-mainnet.g.alchemy.com/v2/G09aLwdbZ-zyer6rwNMGu
-BATCH_SIZE=10
-ETL_SCHEDULE_HOUR=0
-ETL_SCHEDULE_MINUTE=0
-EOF
-    echo "✓ .env file created"
-else
-    echo "✓ .env file already exists"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "Python not found: $PYTHON_BIN"
+    exit 1
 fi
-echo ""
 
-# Step 3: Verify Python imports
-echo "🔍 Verifying Python dependencies..."
-python3 << 'PYTHON_CHECK'
-try:
-    from web3 import Web3
-    print("  ✓ web3")
-    from sqlalchemy import create_engine
-    print("  ✓ sqlalchemy")
-    import pandas as pd
-    print("  ✓ pandas")
-    import psycopg2
-    print("  ✓ psycopg2")
-    from apscheduler.schedulers.blocking import BlockingScheduler
-    print("  ✓ apscheduler")
-    print("\n✅ All dependencies verified!")
-except ImportError as e:
-    print(f"\n❌ Import error: {e}")
-    print("Run: pip install -r requirements.txt")
-    exit(1)
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    "$PYTHON_BIN" -m venv venv
+fi
+
+echo "Installing Python dependencies..."
+./venv/bin/pip install --upgrade pip setuptools wheel
+./venv/bin/pip install -r requirements.txt
+
+if [ ! -f ".env" ]; then
+    echo "Creating .env from .env.example..."
+    cp .env.example .env
+    echo "Review .env before production use."
+else
+    echo ".env already exists"
+fi
+
+echo ""
+echo "Verifying Python imports..."
+PYTHONPATH=src/backend ./venv/bin/python << 'PYTHON_CHECK'
+from web3 import Web3
+from sqlalchemy import create_engine
+import pandas as pd
+import psycopg2
+from apscheduler.schedulers.blocking import BlockingScheduler
+from api import ai_dashboard
+from etl.main_etl import BlockchainETL
+from ml.ai_fraud_detector import BlockchainFraudDetector
+print("Python imports verified")
 PYTHON_CHECK
-echo ""
 
-# Step 4: Quick syntax check
-echo "✓ Syntax verification passed"
 echo ""
-
-# Step 5: Show quick start options
-echo "🚀 Ready to start! Choose an option:"
+echo "Ready. Useful commands:"
+echo "  ./start.sh"
+echo "  ./venv/bin/pytest"
+echo "  PYTHONPATH=src/backend ./venv/bin/python -m processing.scheduler"
+echo "  PYTHONPATH=src/backend ./venv/bin/python -m etl.main_etl"
+echo "  cd src/frontend && npm run build"
 echo ""
-echo "Option 1 (RECOMMENDED): Start scheduler"
-echo "  python src/scheduler.py"
-echo ""
-echo "Option 2: Run single batch"
-echo "  python src/main_etl.py"
-echo ""
-echo "Option 3: Start with Docker"
-echo "  docker-compose up --build"
-echo ""
-echo "Option 4: Run tests"
-echo "  python src/test_etl.py"
-echo ""
-
-echo "📖 For details, see: docs/START_HERE.md"
-echo ""
+echo "Docs: documentation/guides/START_HERE.md"

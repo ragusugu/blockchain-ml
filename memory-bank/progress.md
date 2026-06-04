@@ -16,6 +16,11 @@ Last updated: 2026-06-04
 - Fixed frontend/API model metric contract: `/api/model-info` now returns numeric metrics plus display fields, and React parses either strings or numbers safely.
 - Fixed main deployment helper path assumptions for Docker Compose, Kubernetes image builds, cleanup, and setup verification.
 - Fixed Kubernetes scheduler default schedule to match configured defaults; `deploy-kubernetes.sh` patches the CronJob schedule from `ETL_SCHEDULE_HOUR` and `ETL_SCHEDULE_MINUTE`.
+- Fixed active helper scripts (`start_dashboard.sh`, `install.sh`, `realtime_start.sh`, `ai_start.sh`) so they use the current `src/backend` layout.
+- Fixed startup/deployment helper RPC defaults to use public no-key RPC endpoints instead of provider-style placeholder/default URLs.
+- Fixed Kubernetes CronJob behavior so it runs one ETL pass instead of starting the blocking scheduler process.
+- Fixed root `README.md` project structure, config examples, and documentation links.
+- Fixed `DetailModal.jsx` field compatibility and removed its unused import from `App.jsx`.
 - Memory Bank system created and expanded:
   - `AGENTS.md`
   - `memory-bank/projectbrief.md`
@@ -35,7 +40,7 @@ Last updated: 2026-06-04
 ## Known Issues And Risks
 
 - See `memory-bank/knownIssues.md` for detailed verified risks.
-- Highest-priority remaining risks from the scan: stale docs/scripts, default credentials/provider-style RPC defaults, dashboard happy-path verification against live services, RPC endpoint reliability, and model artifact strategy.
+- Highest-priority remaining risks from the scan: placeholder/default database credentials, dashboard happy-path verification against live services, RPC endpoint reliability, model artifact strategy, and historical docs that still describe pre-refactor paths.
 
 ## Verification
 
@@ -47,5 +52,7 @@ Last updated: 2026-06-04
 - Passed: `bash scripts/deployment/verify-setup.sh` on 2026-06-04 with 24 files found and 0 missing.
 - Passed: `bash -n scripts/deployment/*.sh scripts/*.sh start.sh` on 2026-06-04.
 - Passed: `PYTHONPATH=src/backend ./venv/bin/python -c "import api.ai_dashboard; print('ai_dashboard import ok')"` on 2026-06-04.
+- Passed: `bash -n start.sh scripts/*.sh scripts/deployment/*.sh` on 2026-06-04 after helper-script cleanup.
+- Passed: `PYTHONPATH=src/backend ./venv/bin/python -m py_compile src/backend/api/ai_dashboard.py src/backend/etl/storage.py src/backend/etl/ankr_streamer.py src/backend/processing/scheduler.py src/backend/ml/realtime_processor.py src/backend/ml/train_ai_model.py` on 2026-06-04.
 - Blocked with system Python: `pytest` and `python3 -m pytest` because current Python 3.12 environment has no `pytest` module and no `pip`.
 - Available test runner: local `venv/` contains `venv/bin/pytest`; use `./venv/bin/pytest`.

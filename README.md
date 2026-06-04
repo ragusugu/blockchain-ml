@@ -37,13 +37,12 @@ blockchain-ml/
 │   └── deploy-kubernetes.sh   # Kubernetes setup
 ├── src/
 │   ├── backend/               # Flask API
-│   ├── frontend/              # React Dashboard
-│   └── ml/                    # ML models & inference
-├── config/                     # Configuration files
-├── docs/                       # Documentation
-│   ├── README.md             # Full documentation
-│   ├── QUICK_START.md        # Quick start guide
-│   └── RPC guides            # RPC configuration
+│   │   ├── etl/               # Extract/transform/load pipeline
+│   │   └── ml/                # ML models & inference
+│   └── frontend/              # React Dashboard
+├── documentation/              # Project documentation
+│   ├── README.md              # Documentation index
+│   └── guides/                # Setup and usage guides
 └── requirements.txt           # Python dependencies
 ```
 
@@ -53,28 +52,28 @@ blockchain-ml/
 
 Edit `.env` for settings:
 ```bash
-# RPC Endpoint (default: eth.public-rpc.com - free, no auth)
-RPC_URL=https://eth.public-rpc.com
+# RPC Endpoint (default: public node, no auth)
+RPC_URL=https://ethereum.publicnode.com
 
 # Database
-DB_USER=postgres
-DB_PASSWORD=fraud_detection
+POSTGRES_USER=blockchain_user
+POSTGRES_PASSWORD=change_me_to_secure_password
 
 # ML Settings
 FRAUD_THRESHOLD=0.7
-BATCH_SIZE=100
+BATCH_SIZE=10
 ```
 
-See `docs/OPEN_SOURCE_RPC_GUIDE.md` for RPC options.
+See `.env.example` for RPC options.
 
 ---
 
 ## 📚 Documentation
 
-- [Main README](docs/README.md) - Full project documentation
-- [Quick Start](docs/QUICK_START.md) - Getting started guide
+- [Documentation Index](documentation/README.md) - Full project documentation
+- [Quick Start](documentation/guides/QUICKSTART.md) - Getting started guide
 - [Docker Setup](docker/DOCKER_KUBERNETES_README.md) - Docker details
-- [RPC Guide](docs/OPEN_SOURCE_RPC_GUIDE.md) - RPC configuration
+- [Deployment Guide](documentation/guides/DEPLOYMENT_GUIDE.md) - Deployment details
 - [Kubernetes Manifests](k8s/) - K8s deployment files
 
 ---
@@ -125,17 +124,17 @@ Then choose Docker or Kubernetes from the menu.
 
 ```bash
 # View quick reference
-bash docs/RPC_QUICK_START.sh
+bash scripts/deployment/DEPLOYMENT_QUICK_REFERENCE.sh
 
 # Check deployment status
-docker-compose ps                    # Docker
+cd docker && docker-compose ps       # Docker
 kubectl get pods -n blockchain-ml   # Kubernetes
 
 # View logs
-docker-compose logs -f backend
+cd docker && docker-compose logs -f backend
 kubectl logs -f deployment/backend -n blockchain-ml
 ```
 
 ---
 
-**Ready to deploy?** See [Quick Start Guide](docs/QUICK_START.md)
+**Ready to deploy?** See [Quick Start Guide](documentation/guides/QUICKSTART.md)
