@@ -54,7 +54,7 @@ When triggered, the cleanup performs:
 Just run the Flask backend normally - monitoring starts automatically:
 
 ```bash
-python src/backend/api/ai_dashboard.py
+PYTHONPATH=src/backend ./venv/bin/python src/backend/api/ai_dashboard.py
 ```
 
 Check logs for cleanup messages:

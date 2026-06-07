@@ -375,9 +375,9 @@ All files are cloud-agnostic!
 pip install requirements.txt
 npm install
 # Run each service separately in different terminals
-python src/backend/api/ai_dashboard.py
+PYTHONPATH=src/backend ./venv/bin/python src/backend/api/ai_dashboard.py
 npm run dev  # in frontend folder
-python src/backend/processing/scheduler.py
+PYTHONPATH=src/backend ./venv/bin/python -m processing.scheduler
 ```
 
 ### After

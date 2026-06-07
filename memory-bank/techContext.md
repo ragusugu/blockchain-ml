@@ -1,6 +1,6 @@
 # Technical Context
 
-Last updated: 2026-06-04
+Last updated: 2026-06-07
 
 ## Stack
 
@@ -45,6 +45,8 @@ Last updated: 2026-06-04
 - Current shell check showed Python 3.12.3, Node v24.12.0, and npm 11.6.2. `pytest` and `python3 -m pip` were unavailable in this environment on 2026-06-04.
 - Local `venv/` exists and includes `pip`, `pytest`, `flask`, `fastmcp`, and related tools.
 - `.gitignore` ignores `.env`, `venv/`, Python caches, node/build caches, `*.pkl`, `fraud_model.pkl`, logs, and sqlite/db files.
+- As of 2026-06-07, `venv/` and `src/frontend/node_modules/` are no longer tracked source; local folders may still exist and are ignored.
+- `.gitignore` also covers `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, legacy `src/static/`, `nohup.out`, and `*.out`.
 - `.env.example` documents public RPC defaults and placeholder provider-key URLs.
 - `start.sh` sets default environment variables and starts Flask plus Vite. Review its default RPC configuration before sharing or committing credential-like values.
 - `scripts/start_dashboard.sh` and `scripts/ai_start.sh` reference older `src/...` paths and may be stale compared with the current `src/backend/...` layout.

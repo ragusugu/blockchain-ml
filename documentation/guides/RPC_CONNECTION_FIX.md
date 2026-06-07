@@ -1,89 +1,98 @@
-# 🔧 RPC Connection Fix Guide
+# RPC Connection Troubleshooting
 
-## ❌ Problem
-Web3 connection failed: RPC not connected
+## Problem
 
-## ✅ Solution
+The backend reports `Web3 connection failed` or `RPC not connected`.
+
+## Recommended Fix
 
 Your system requires a working Ethereum RPC endpoint. Here are your options:
 
-### **Option 1: Use Free Public RPC (Recommended)**
+### Option 1: Use a Free Public RPC
 
-Add this to `/home/sugangokul/Desktop/blockchain-ml/docker/.env`:
-```
+Add this to `.env` or `docker/.env`:
+
+```bash
 RPC_URL=https://eth.drpc.org
 ```
 
 Then restart:
+
 ```bash
-cd /home/sugangokul/Desktop/blockchain-ml/docker
+cd docker
 docker-compose restart backend
 ```
 
-### **Option 2: Get Free Alchemy Key (Recommended - More Reliable)**
+### Option 2: Use Alchemy
 
 1. Go to: https://www.alchemy.com/
-2. Sign up for free account
+2. Sign up for a free account
 3. Create an Ethereum Mainnet app
 4. Copy your API key
 5. Update `.env`:
-```
+
+```bash
 RPC_URL=https://eth-mainnet.alchemy.com/v2/YOUR_API_KEY
 ```
 
-### **Option 3: Get Free Infura Key**
+### Option 3: Use Infura
 
 1. Go to: https://www.infura.io/
-2. Sign up for free account
-3. Create new project
+2. Sign up for a free account
+3. Create a new project
 4. Copy your project ID
 5. Update `.env`:
-```
+
+```bash
 RPC_URL=https://mainnet.infura.io/v3/YOUR_PROJECT_ID
 ```
 
-### **Option 4: Use Ankr with API Key (Free Tier)**
+### Option 4: Use Ankr
 
 1. Go to: https://www.ankr.com/rpc/
 2. Sign up for free
 3. Create your API key
 4. Update `.env`:
-```
+
+```bash
 ANKR_RPC_URL=https://rpc.ankr.com/eth/YOUR_API_KEY
 ```
 
-## 🚀 Apply Your Choice
+## Apply Your Choice
 
-**Step 1:** Edit the .env file:
+Edit the environment file:
+
 ```bash
-nano /home/sugangokul/Desktop/blockchain-ml/docker/.env
+nano docker/.env
 ```
 
-**Step 2:** Update RPC_URL with your choice
+Update `RPC_URL` or `ANKR_RPC_URL`, save, and restart:
 
-**Step 3:** Save and restart:
 ```bash
-cd /home/sugangokul/Desktop/blockchain-ml/docker
+cd docker
 docker-compose restart backend
 ```
 
-**Step 4:** Test the connection:
+Test the connection:
+
 ```bash
 curl http://localhost:5000/api/stats
 ```
 
-## ✅ Success Indicator
+## Success Indicator
 
 When working, you should see:
+
 ```json
 {"transactions": [...], "stats": {...}}
 ```
 
 Instead of:
+
 ```json
 {"error":"Web3 not connected"}
 ```
 
 ---
 
-**Recommended:** Use **Alchemy** for best reliability + free tier is generous.
+Do not commit private provider keys. Keep real RPC URLs in local environment files or deployment secrets.

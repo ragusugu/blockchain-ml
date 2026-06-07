@@ -269,7 +269,7 @@ docker-compose logs ankr-streamer
 docker-compose --profile streaming logs ankr-streamer
 
 # Test locally
-python src/backend/etl/stream_service.py
+PYTHONPATH=src/backend ./venv/bin/python -m etl.stream_service
 ```
 
 ## Integration with Existing Components

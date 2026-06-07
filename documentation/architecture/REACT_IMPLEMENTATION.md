@@ -88,7 +88,7 @@ bash /home/sugangokul/Desktop/blockchain-ml/start_react.sh
 **Terminal 1 - Flask Backend:**
 ```bash
 python /home/sugangokul/Desktop/blockchain-ml/venv/bin/python \
-  /home/sugangokul/Desktop/blockchain-ml/src/ai_dashboard.py
+  /home/sugangokul/Desktop/blockchain-ml/src/backend/api/ai_dashboard.py
 ```
 
 **Terminal 2 - React Frontend:**
@@ -105,7 +105,7 @@ Then access at **http://localhost:3000** with hot-reloading!
 cd src/frontend && npm run build
 
 # Flask serves static React app
-python src/ai_dashboard.py
+cd src/backend && python3 api/ai_dashboard.py
 
 # Access at http://localhost:5000
 ```
@@ -320,10 +320,10 @@ cd src/frontend && npm install
 npm run dev → http://localhost:3000
 
 # Production build
-npm run build → ../static/
+npm run build -> dist/
 
 # Start Flask (serves built React)
-python src/ai_dashboard.py → http://localhost:5000
+cd src/backend && python3 api/ai_dashboard.py → http://localhost:5000
 ```
 
 **Happy coding!** 🎨✨

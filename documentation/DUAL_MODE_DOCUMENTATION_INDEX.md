@@ -97,7 +97,7 @@ src/frontend/src/App.jsx (UPDATED)
 ├─ Mode-specific rendering
 └─ Mode switching capability
 
-src/ai_dashboard.py (UPDATED)
+src/backend/api/ai_dashboard.py (UPDATED)
 ├─ Mode-aware /api/options endpoint
 ├─ Mode-aware /api/transactions endpoint
 └─ Mode-specific processing logic
@@ -141,7 +141,7 @@ DUAL_MODE_DOCUMENTATION_INDEX.md (THIS FILE)  - Navigation guide
 ### Option 1: Quick Start (5 minutes)
 ```bash
 1. Read: QUICK_START_DUAL_MODE.md
-2. Run: python src/ai_dashboard.py
+2. Run: cd src/backend && python3 api/ai_dashboard.py
 3. Open: http://localhost:5000
 4. Select: Your processing mode
 5. Done!
@@ -334,7 +334,7 @@ A: Scheduled for compliance/analysis, Real-Time for monitoring/alerts.
 ```bash
 # Start the backend
 cd /home/sugangokul/Desktop/blockchain-ml
-python src/ai_dashboard.py
+cd src/backend && python3 api/ai_dashboard.py
 
 # Open in browser
 # http://localhost:5000

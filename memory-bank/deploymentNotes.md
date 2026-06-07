@@ -1,6 +1,6 @@
 # Deployment Notes
 
-Last updated: 2026-06-04
+Last updated: 2026-06-07
 
 ## Local Development
 
@@ -41,4 +41,5 @@ Last updated: 2026-06-04
 - `docker/Dockerfile.frontend` builds in `/app/frontend` and copies `/app/frontend/dist` to nginx.
 - `src/frontend/vite.config.js` now sets `build.outDir` to `dist`.
 - `npm run build` from `src/frontend` passed on 2026-06-04 and emitted `dist/`.
+- `npm run build` from `src/frontend` passed again on 2026-06-07 after the organization pass and emitted `dist/`.
 - Vite currently reports a large-chunk warning for the main JS bundle; this is an optimization opportunity, not a build failure.

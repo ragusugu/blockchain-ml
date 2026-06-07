@@ -1,6 +1,6 @@
 # Known Issues
 
-Last updated: 2026-06-04
+Last updated: 2026-06-07
 
 ## Verified From Current Source
 
@@ -10,6 +10,7 @@ Last updated: 2026-06-04
 ## Docs Or Plan Items That May Be Stale
 
 - `IMPROVEMENT_PLAN.md` still lists some already-fixed items: missing imports in `realtime_processor.py` and `stream_service.py`, `ON CONFLICT DO NOTHING` in ETL load, thread-safe extract cache, pytest presence, and Gunicorn usage.
+- `IMPROVEMENT_PLAN.md` also still references an already-fixed/stale frontend build issue involving `src/static`; current Vite output is `src/frontend/dist`.
 - `.github/copilot-instructions.txt` includes stale details such as WebSocket-style Ankr language, `blockchain_fraud_model.pkl`, and a `fraud_score` database column.
 - Many historical files under `documentation/legacy/` and `documentation/archive/` reference older source layout and should be treated as archived context, not current instructions.
 

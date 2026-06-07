@@ -1,6 +1,6 @@
 # System Patterns
 
-Last updated: 2026-06-04
+Last updated: 2026-06-07
 
 ## Runtime Architecture
 
@@ -58,5 +58,7 @@ Last updated: 2026-06-04
 ## Documentation Pattern
 
 - Root `README.md`, `IMPROVEMENT_PLAN.md`, `roadmap.md`, and `TODO.md` are the most useful root-level docs.
-- Many `documentation/` files are historical and reference pre-refactor paths such as `src/ai_dashboard.py`.
+- `documentation/README.md` is the active documentation index; `documentation/guides/RPC_CONNECTION_FIX.md` is the current RPC troubleshooting guide.
+- One-off root summaries were moved under `documentation/archive/` on 2026-06-07.
+- Many files under `documentation/archive/` and `documentation/legacy/` are historical and may reference pre-refactor paths such as `src/ai_dashboard.py`.
 - Treat docs as supporting context; verify against source.

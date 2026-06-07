@@ -15,7 +15,7 @@ Your app now has a **Mode Selection Screen** where users choose:
 ### 1. Start the Backend
 ```bash
 cd /home/sugangokul/Desktop/blockchain-ml
-python src/ai_dashboard.py
+cd src/backend && python3 api/ai_dashboard.py
 ```
 
 Expected output:
@@ -244,7 +244,7 @@ curl -X POST "http://localhost:5000/api/transactions" \
 - `src/frontend/src/App.jsx` - Mode state management
 
 **Backend:**
-- `src/ai_dashboard.py` - Mode-aware API endpoints
+- `src/backend/api/ai_dashboard.py` - Mode-aware API endpoints
 
 **Documentation:**
 - `DUAL_MODE_IMPLEMENTATION.md` - Detailed guide

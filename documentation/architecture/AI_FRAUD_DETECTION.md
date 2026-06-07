@@ -158,7 +158,7 @@ analysis_thread.start()
 cd /home/sugangokul/Desktop/blockchain-ml
 
 # Generate synthetic data + train
-python src/train_ai_model.py
+PYTHONPATH=src/backend ./venv/bin/python src/backend/ml/train_ai_model.py
 
 # Creates:
 # - fraud_model.pkl (trained model)
@@ -187,7 +187,7 @@ value_zscore          : 0.187
 
 ```bash
 # Real-time fraud detection
-python src/realtime_processor.py
+PYTHONPATH=src/backend ./venv/bin/python -m ml.realtime_processor
 ```
 
 **Enhanced code** (modified realtime_processor.py):
@@ -215,7 +215,7 @@ while True:
 
 ```bash
 # Modified main_etl.py
-python src/main_etl.py --with-ai
+PYTHONPATH=src/backend ./venv/bin/python -m etl.main_etl
 ```
 
 **Enhanced code** (modified main_etl.py):
@@ -372,7 +372,7 @@ Report saved to: fraud_report.json
 
 1. **Train model:**
    ```bash
-   python src/train_ai_model.py
+   PYTHONPATH=src/backend ./venv/bin/python src/backend/ml/train_ai_model.py
    ```
 
 2. **Choose integration point** from the 3 options above
@@ -392,10 +392,10 @@ Report saved to: fraud_report.json
 
 **Ready? Train your AI model:**
 ```bash
-python src/train_ai_model.py
+PYTHONPATH=src/backend ./venv/bin/python src/backend/ml/train_ai_model.py
 ```
 
 All files created:
-- `src/ai_fraud_detector.py` - Core ML model
-- `src/ai_integration.py` - Pipeline integration
-- `src/train_ai_model.py` - Training script
+- `src/backend/ml/ai_fraud_detector.py` - Core ML model
+- `src/backend/ml/ai_integration.py` - Pipeline integration
+- `src/backend/ml/train_ai_model.py` - Training script

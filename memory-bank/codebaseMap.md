@@ -1,12 +1,13 @@
 # Codebase Map
 
-Last updated: 2026-06-04
+Last updated: 2026-06-07
 
 ## Backend Source
 
 - `src/backend/config.py`: singleton `cfg`; all major env vars and RPC fallback list.
 - `src/backend/connections.py`: cached `get_web3()`, `get_db_engine()`, and `reset_connections()`.
 - `src/backend/logging_config.py`: app logging setup.
+- `src/backend/api/__init__.py`: package marker for the Flask API package.
 - `src/backend/api/ai_dashboard.py`: Flask app, async job endpoints, transaction processing core, PostgreSQL cache/persist helpers, model toggle, health/status/streaming routes, static frontend serving.
 - `src/backend/mcp_server.py`: FastMCP server exposing blockchain query tools, fraud analysis, model info, and `config://rpc`.
 
@@ -79,8 +80,11 @@ Last updated: 2026-06-04
 ## Docs And Metadata
 
 - `README.md`: main overview with current project structure and documentation links.
+- `documentation/README.md`: concise active documentation index.
+- `documentation/guides/RPC_CONNECTION_FIX.md`: current RPC connection troubleshooting guide.
 - `IMPROVEMENT_PLAN.md`: older audit; some items already fixed, some still valid.
 - `roadmap.md`: broad architecture/roadmap; useful but some line counts and bug status may be stale.
 - `TODO.md`: MCP server task marked complete.
+- `documentation/archive/`: historical one-off summaries and legacy setup/completion docs.
 - `.github/copilot-instructions.txt`: rich project guide but contains several stale details.
 - `.vscode/mcp.json`: local MCP config for this project.

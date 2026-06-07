@@ -300,14 +300,14 @@ CREATE TABLE fraud_detections (
 
 **Run in Scheduled Mode:**
 ```bash
-python src/ai_dashboard.py
+cd src/backend && python3 api/ai_dashboard.py
 # Select ⏰ Scheduled → Standard/Enhanced
 # Process historical data with model training
 ```
 
 **Run in Real-Time Mode:**
 ```bash
-python src/ai_dashboard.py
+cd src/backend && python3 api/ai_dashboard.py
 # Select ⚡ Real-Time → Stream/Risk-Scoring
 # Stream live transactions with instant detection
 ```

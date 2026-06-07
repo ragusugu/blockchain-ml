@@ -1,13 +1,13 @@
 # Active Context
 
-Last updated: 2026-06-04
+Last updated: 2026-06-07
 
 ## Current Focus
 
-- Memory Bank has been refreshed after a full codebase scan.
+- Codebase organization pass completed on 2026-06-07.
 - Current app center of gravity is the dual-mode dashboard: scheduled/batch transaction analysis plus real-time/Ankr streaming status.
 - Frontend production build output, model loading, async job storage, streaming persistence, model metric contract, main deployment path assumptions, stale active helper scripts, README links, DetailModal compatibility, and Kubernetes CronJob behavior have been fixed.
-- The most valuable next engineering work is verifying the full dashboard happy path against live services, deciding the model artifact strategy, and replacing placeholder database credentials before real deployment.
+- The most valuable next engineering work is verifying the full dashboard happy path against live services, deciding the model artifact strategy, replacing placeholder database credentials before real deployment, and continuing to prune or archive stale historical docs.
 
 ## Recent Decisions
 
@@ -26,17 +26,22 @@ Last updated: 2026-06-04
 - Make the Kubernetes CronJob run one ETL pass through `processing.scheduler.run_etl()` instead of starting the blocking scheduler inside each job.
 - Update README links from removed `docs/` paths to current `documentation/` paths.
 - Make `DetailModal.jsx` tolerate the current transaction field contract even though `TransactionDetailsPanel.jsx` is the active UI.
+- Remove generated/dependency artifacts from tracked source: `venv/`, `src/frontend/node_modules/`, legacy `src/static/`, and `src/frontend/nohup.out`.
+- Keep local dependency folders available on disk but ignored by Git.
+- Move one-off root summaries into `documentation/archive/` and move RPC troubleshooting to `documentation/guides/RPC_CONNECTION_FIX.md`.
+- Refresh active documentation indexes and setup/testing/dashboard references around the current `src/backend` and `src/frontend` layout.
 
 ## Open Questions
 
 - Whether model artifacts such as `fraud_model.pkl` should be generated locally, stored in the Docker `models_cache` volume, mounted at `/app/models`, or managed by a model registry.
 - Whether PostgreSQL is required for normal dashboard use or only for scheduled-mode cache/persistence. Current API can fetch live RPC data without cache, but scheduled-mode persistence and ETL require PostgreSQL.
 - Whether historical docs under `documentation/legacy/` and `documentation/archive/` should be updated, archived as-is, or removed.
+- Whether additional older active docs should be consolidated further after the 2026-06-07 path normalization pass.
 
 ## Next Useful Work
 
 - Verify dashboard happy path with a local backend/frontend run.
 - Confirm model loading and no-model fallback behavior in API endpoints.
 - Replace placeholder/default database credentials before any real deployment.
-- Decide whether to update or archive historical docs that still describe pre-refactor paths.
+- Decide whether to update or archive remaining historical docs that still describe pre-refactor paths.
 - Consider frontend code-splitting or manual chunks; Vite production build passes but warns about the main JS bundle size.

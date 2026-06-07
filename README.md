@@ -24,26 +24,21 @@ bash scripts/deployment/deploy-kubernetes.sh
 
 ```
 blockchain-ml/
-├── docker/                      # Docker configuration
-│   ├── Dockerfile.*            # Container definitions
-│   └── docker-compose.yml      # Multi-container orchestration
-├── k8s/                         # Kubernetes manifests
-│   ├── 01-namespace.yaml
-│   ├── 02-configmap.yaml      # RPC & app config
-│   └── ...
-├── scripts/deployment/          # Deployment automation
-│   ├── deploy.sh              # Interactive deployment
-│   ├── deploy-docker.sh       # Docker setup
-│   └── deploy-kubernetes.sh   # Kubernetes setup
 ├── src/
-│   ├── backend/               # Flask API
-│   │   ├── etl/               # Extract/transform/load pipeline
-│   │   └── ml/                # ML models & inference
-│   └── frontend/              # React Dashboard
-├── documentation/              # Project documentation
-│   ├── README.md              # Documentation index
-│   └── guides/                # Setup and usage guides
-└── requirements.txt           # Python dependencies
+│   ├── backend/                 # Flask API, ETL, ML, MCP, processing utilities
+│   │   ├── api/                 # Dashboard API entrypoint
+│   │   ├── etl/                 # Extract/transform/load and streaming
+│   │   ├── ml/                  # Fraud model training and inference
+│   │   ├── processing/          # Scheduler/manual ETL helpers
+│   │   └── utils/               # Operational utilities
+│   └── frontend/                # Vite React dashboard
+├── tests/                       # Backend unit tests
+├── docker/                      # Dockerfiles, Compose, nginx
+├── k8s/                         # Kubernetes manifests
+├── scripts/                     # Local, streaming, and deployment helpers
+├── documentation/               # Guides, architecture notes, archive
+├── memory-bank/                 # Maintainer context for future sessions
+└── requirements.txt             # Python dependencies
 ```
 
 ---
@@ -74,6 +69,7 @@ See `.env.example` for RPC options.
 - [Quick Start](documentation/guides/QUICKSTART.md) - Getting started guide
 - [Docker Setup](docker/DOCKER_KUBERNETES_README.md) - Docker details
 - [Deployment Guide](documentation/guides/DEPLOYMENT_GUIDE.md) - Deployment details
+- [RPC Troubleshooting](documentation/guides/RPC_CONNECTION_FIX.md) - Fix RPC connection issues
 - [Kubernetes Manifests](k8s/) - K8s deployment files
 
 ---
@@ -97,15 +93,14 @@ Automatic cleanup keeps your system healthy:
 
 ```bash
 # Check disk status
-./cleanup.sh --status
+PYTHONPATH=src/backend ./venv/bin/python src/backend/utils/disk_cleanup.py
 
-# Force cleanup now
-./cleanup.sh --cleanup-now
+# Remove Docker Compose resources and volumes
+bash scripts/deployment/cleanup-docker.sh
+
+# Remove the local Kind Kubernetes cluster
+bash scripts/deployment/cleanup-kubernetes.sh
 ```
-
-**Automatic monitoring** runs in background - no manual intervention needed!
-
-📖 See [CLEANUP_QUICK_REFERENCE.md](CLEANUP_QUICK_REFERENCE.md) for details.
 
 ---
 

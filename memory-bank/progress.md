@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-06-04
+Last updated: 2026-06-07
 
 ## Done
 
@@ -21,6 +21,11 @@ Last updated: 2026-06-04
 - Fixed Kubernetes CronJob behavior so it runs one ETL pass instead of starting the blocking scheduler process.
 - Fixed root `README.md` project structure, config examples, and documentation links.
 - Fixed `DetailModal.jsx` field compatibility and removed its unused import from `App.jsx`.
+- Organized tracked source by removing generated/dependency artifacts from Git tracking: `venv/`, `src/frontend/node_modules/`, legacy `src/static/`, and `src/frontend/nohup.out`; local `venv/` and `node_modules/` remain available and ignored.
+- Added ignore rules for test/tool caches, legacy static build output, and `nohup`/`.out` logs.
+- Added `src/backend/api/__init__.py` to make the API directory an explicit Python package.
+- Moved root one-off docs into `documentation/archive/` and moved RPC troubleshooting to `documentation/guides/RPC_CONNECTION_FIX.md`.
+- Reworked active documentation indexes and setup/testing/dashboard references to point at `src/backend`, `src/frontend`, `src/frontend/dist`, and current helper commands.
 - Memory Bank system created and expanded:
   - `AGENTS.md`
   - `memory-bank/projectbrief.md`
@@ -35,7 +40,7 @@ Last updated: 2026-06-04
 
 ## In Progress
 
-- No active implementation work in progress. Memory Bank has been refreshed from the full codebase scan and current local verification results are recorded below.
+- No active implementation work in progress. Codebase organization changes and current local verification results are recorded below.
 
 ## Known Issues And Risks
 
@@ -54,5 +59,12 @@ Last updated: 2026-06-04
 - Passed: `PYTHONPATH=src/backend ./venv/bin/python -c "import api.ai_dashboard; print('ai_dashboard import ok')"` on 2026-06-04.
 - Passed: `bash -n start.sh scripts/*.sh scripts/deployment/*.sh` on 2026-06-04 after helper-script cleanup.
 - Passed: `PYTHONPATH=src/backend ./venv/bin/python -m py_compile src/backend/api/ai_dashboard.py src/backend/etl/storage.py src/backend/etl/ankr_streamer.py src/backend/processing/scheduler.py src/backend/ml/realtime_processor.py src/backend/ml/train_ai_model.py` on 2026-06-04.
+- Passed: `git diff --check` on 2026-06-07.
+- Passed: `PYTHONPATH=src/backend ./venv/bin/python -c "import api.ai_dashboard; print('ai_dashboard import ok')"` on 2026-06-07; emitted the known default database password warning.
+- Passed: `bash -n start.sh scripts/*.sh scripts/deployment/*.sh` on 2026-06-07.
+- Passed: `bash scripts/deployment/verify-setup.sh` on 2026-06-07 with 24 files found and 0 missing.
+- Passed: `./venv/bin/pytest` on 2026-06-07 with 19 passed, 1 warning.
+- Passed: `PYTHONPATH=src/backend ./venv/bin/python -m py_compile src/backend/api/ai_dashboard.py src/backend/etl/storage.py src/backend/etl/ankr_streamer.py src/backend/processing/scheduler.py src/backend/ml/realtime_processor.py src/backend/ml/train_ai_model.py` on 2026-06-07.
+- Passed: `npm run build` from `src/frontend` on 2026-06-07. Vite emitted `dist/` successfully and reported the existing large-chunk warning for the main JS bundle.
 - Blocked with system Python: `pytest` and `python3 -m pytest` because current Python 3.12 environment has no `pytest` module and no `pip`.
 - Available test runner: local `venv/` contains `venv/bin/pytest`; use `./venv/bin/pytest`.

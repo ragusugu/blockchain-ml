@@ -210,7 +210,7 @@ Dashboard resets with new mode
 
 ### Modified:
 1. ✅ `src/frontend/src/App.jsx` - Added mode state management
-2. ✅ `src/ai_dashboard.py` - Added mode-aware API endpoints
+2. ✅ `src/backend/api/ai_dashboard.py` - Added mode-aware API endpoints
 
 ### Documentation:
 1. ✅ `DUAL_MODE_IMPLEMENTATION.md` - Detailed implementation guide

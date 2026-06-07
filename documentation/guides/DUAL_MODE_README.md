@@ -25,7 +25,7 @@ Your blockchain fraud detection system now supports **two distinct processing mo
 ### Run the App
 ```bash
 cd /home/sugangokul/Desktop/blockchain-ml
-python src/ai_dashboard.py
+cd src/backend && python3 api/ai_dashboard.py
 ```
 
 Then open: **http://localhost:5000**
@@ -143,7 +143,7 @@ Can Switch Modes Anytime
 
 ### Modified
 - `src/frontend/src/App.jsx` - Added mode state
-- `src/ai_dashboard.py` - Added mode handling
+- `src/backend/api/ai_dashboard.py` - Added mode handling
 - Database: No schema changes needed
 
 ---
@@ -216,7 +216,7 @@ NEW FILES:
 
 ### 1. Run the App
 ```bash
-python src/ai_dashboard.py
+cd src/backend && python3 api/ai_dashboard.py
 ```
 
 ### 2. Open Browser
@@ -272,7 +272,7 @@ Your blockchain fraud detection system is now fully functional with dual-mode su
 
 ```bash
 # One command to start:
-python src/ai_dashboard.py
+cd src/backend && python3 api/ai_dashboard.py
 ```
 
 Then select your preferred processing mode and begin analyzing blockchain transactions!

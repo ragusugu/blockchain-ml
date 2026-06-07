@@ -35,7 +35,7 @@ pip install scikit-learn matplotlib seaborn requests
 
 ### 2. Train AI Model
 ```bash
-python src/train_ai_model.py
+PYTHONPATH=src/backend ./venv/bin/python src/backend/ml/train_ai_model.py
 ```
 
 **Output:**
@@ -335,7 +335,7 @@ Gas deviation              7.7%
 
 - [ ] Install ML packages: `pip install scikit-learn matplotlib seaborn requests`
 - [ ] Update requirements.txt: Done ✅
-- [ ] Train model: `python src/train_ai_model.py`
+- [ ] Train model: `PYTHONPATH=src/backend ./venv/bin/python src/backend/ml/train_ai_model.py`
 - [ ] Choose integration point (1, 2, or 3)
 - [ ] Integrate with your pipeline
 - [ ] Test with sample data
@@ -351,7 +351,7 @@ As you collect real fraud data:
 
 ```bash
 # Update training data with real labels
-python src/train_ai_model.py --use-real-data fraud_labels.csv
+PYTHONPATH=src/backend ./venv/bin/python src/backend/ml/train_ai_model.py --use-real-data fraud_labels.csv
 
 # Model will be retrained with actual fraud cases
 ```
@@ -400,7 +400,7 @@ export ALERT_THRESHOLD=0.8                    # Alert on probability >80%
 
 2. **Train model:**
    ```bash
-   python src/train_ai_model.py
+   PYTHONPATH=src/backend ./venv/bin/python src/backend/ml/train_ai_model.py
    ```
 
 3. **Choose integration:**
@@ -422,7 +422,7 @@ export ALERT_THRESHOLD=0.8                    # Alert on probability >80%
 ## 📞 SUPPORT
 
 - **Integration help:** See `AI_FRAUD_DETECTION.md`
-- **Training issues:** Run `python src/train_ai_model.py --debug`
+- **Training issues:** Run `PYTHONPATH=src/backend ./venv/bin/python src/backend/ml/train_ai_model.py --debug`
 - **Model performance:** Check `fraud_report.json`
 - **Visualizations:** Open `fraud_analysis.png`
 

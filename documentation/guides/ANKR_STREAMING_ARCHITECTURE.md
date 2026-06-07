@@ -115,7 +115,7 @@ NOT running:
 
 ### Model 2: Streaming Only (Development)
 ```bash
-python src/backend/etl/stream_service.py
+PYTHONPATH=src/backend ./venv/bin/python -m etl.stream_service
 
 Running:
 - Ankr Streamer (connects to existing DB)
